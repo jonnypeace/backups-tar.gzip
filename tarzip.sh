@@ -4,7 +4,7 @@
 dirbk=/EDIT/ME/I/AM/YOUR/BACKUP/DIRECTORY
 
 # directory to be backed up
-dirpass=/EDIT/ME/I/WANT/BACKED/UP
+dirfrom=/EDIT/ME/I/WANT/BACKED/UP
 
 # incremental file which keeps track of changing
 incfile=file.inc
@@ -35,4 +35,4 @@ if [[ $filenum -ge 7 ]]; then
 fi
 
 # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
-tar -vvcz -g $dirbk/$incfile -f $dirbk/pass-$day.tgz $dirpass
+tar -vvcz -g $dirbk/$incfile -f $dirbk/pass-$day.tgz $dirfrom
