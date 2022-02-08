@@ -13,7 +13,7 @@ Edit the script and update the directories as necessary (first few lines / varia
 dirbk=/EDIT/ME/I/AM/YOUR/BACKUP/DIRECTORY
 
 # directory to be backed up
-dirfrom=/EDIT/ME/I/WANT/BACKED/UP
+dirfrom=/home/user
 
 # incremental file which keeps track of changing
 incfile=file.inc
@@ -21,8 +21,6 @@ incfile=file.inc
 # name of the file for back up, no extensions required here, just one word avoid spaces.
 backfile=home
 ~~~
-
-Edit the file variable name to suit your needs. "incfile=file.inc"
 
 For cron, these are hard coded, no options in the command line, just full automation.
 
