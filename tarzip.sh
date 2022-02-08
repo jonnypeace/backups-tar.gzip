@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # incremental backup directory
-dirbk=/server/to/store/backups
+dirbk=/EDIT/ME/I/AM/YOUR/BACKUP/DIRECTORY
 
 # directory to be backed up
-dirpass=/folder/to/be/backed/up
+dirpass=/EDIT/ME/I/WANT/BACKED/UP
 
 # incremental file which keeps track of changing
 incfile=file.inc
