@@ -9,6 +9,9 @@ dirfrom=/EDIT/ME/I/WANT/BACKED/UP
 # incremental file which keeps track of changing
 incfile=file.inc
 
+# name of the file for back up, no extensions required here, just one word, avoid spaces.
+backfile=home
+
 # date for directory and .tgz file naming
 day=$(date +'%F')
 
@@ -35,4 +38,5 @@ if [[ $filenum -ge 7 ]]; then
 fi
 
 # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
-tar -vvcz -g $dirbk/$incfile -f $dirbk/pass-$day.tgz $dirfrom
+# to exclude a directory after the tar command, example --exclude='/home/user/folder'
+tar -vvcz -g $dirbk/$incfile -f $dirbk/$backfile-$day.tgz $dirfrom
