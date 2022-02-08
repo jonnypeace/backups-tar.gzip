@@ -4,7 +4,7 @@
 dirbk=/EDIT/ME/I/AM/YOUR/BACKUP/DIRECTORY
 
 # directory to be backed up
-dirfrom=/EDIT/ME/I/WANT/BACKED/UP
+dirfrom=/home/user
 
 # incremental file which keeps track of changing
 incfile=file.inc
