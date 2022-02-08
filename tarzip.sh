@@ -39,4 +39,4 @@ fi
 
 # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
 # to exclude a directory after the tar command, example --exclude='/home/user/folder'
-tar -vvcz -g $dirbk/$incfile -f $dirbk/$backfile-$day.tgz $dirfrom
+tar -vcz -g $dirbk/$incfile -f $dirbk/$backfile-$day.tgz $dirfrom
