@@ -7,7 +7,7 @@ dirbk=/server/to/store/backups
 dirpass=/folder/to/be/backed/up
 
 # incremental file which keeps track of changing
-incfile=file.inc.sngz
+incfile=file.inc
 
 # date for directory and .tgz file naming
 day=$(date +'%F')
