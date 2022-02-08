@@ -17,6 +17,9 @@ dirfrom=/EDIT/ME/I/WANT/BACKED/UP
 
 # incremental file which keeps track of changing
 incfile=file.inc
+
+# name of the file for back up, no extensions required here, just one word avoid spaces.
+backfile=home
 ~~~
 
 Edit the file variable name to suit your needs. "incfile=file.inc"
