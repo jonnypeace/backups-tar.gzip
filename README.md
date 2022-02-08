@@ -1,6 +1,6 @@
 # Incremental Backups using tar .tgz
 
-These should work independant of where the scripts are stored.
+This should work independant of where the scripts are stored, from the backup directory.
 
 # tarzip.sh - for incremental backup
 
