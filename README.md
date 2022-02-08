@@ -2,7 +2,7 @@
 
 These should work independant of where the scripts are stored.
 
-# tarzip.sh
+# tarzip.sh - for incremental backup
 
 I've added verbose to the backups, but if being run in a cron job, it's not really necessary.
 
@@ -30,7 +30,7 @@ The scripts are set up for daily backups, storing 2 weeks worth of data.
 
 Theres a corresponding script for restoring incremental backups, same idea, change the directories.
 
-# rec-tarzip.sh
+# rec-tarzip.sh for restoring
 
 Edit these lines.
 ~~~
