@@ -13,7 +13,7 @@ Edit the script and update the directories as necessary (first few lines / varia
 dirbk=/EDIT/ME/I/AM/YOUR/BACKUP/DIRECTORY
 
 # directory to be backed up
-dirpass=/EDIT/ME/I/WANT/BACKED/UP
+dirfrom=/EDIT/ME/I/WANT/BACKED/UP
 
 # incremental file which keeps track of changing
 incfile=file.inc
