@@ -26,3 +26,16 @@ For cron, these are hard coded, no options in the command line, just full automa
 The scripts are set up for daily backups, storing 2 weeks worth of data.
 
 Theres a corresponding script for restoring incremental backups, same idea, change the directories.
+
+# rec-tarzip.sh
+
+Edit these lines.
+~~~
+# incremental backup directory, where your backups are stored.
+dirbk=/server-or-drive/that/stores/backups
+
+# Directory to recover incremental backups to
+# Example /home if you are recovering a users
+# home directory, i.e. /home/user
+recdir=/home
+~~~
