@@ -8,6 +8,6 @@ dirbk=/server-or-drive/that/stores/backups
 # home directory, i.e. /home/user
 recdir=/home
 
-for f in $(ls -tr $dirbk/*.tgz) ; do
-	cd $recdir && tar -x -g /dev/null -f $f
+for f in $(ls -tr "$dirbk"/*.tgz) ; do
+	cd "$recdir" && tar -x -g /dev/null -f "$f"
 done
