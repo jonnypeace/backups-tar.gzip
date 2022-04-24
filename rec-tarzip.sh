@@ -8,6 +8,8 @@ dirbk=/backup/directory
 # home directory, i.e. /home/user
 recdir=/home
 
+cd "$recdir"
+
 for f in $(find "$dirbk" -type f -iname "*.tgz" | sort -n) ; do
-	cd "$recdir" && tar -x -g /dev/null -f "$f"
+	tar -x -g /dev/null -f "$f"
 done
