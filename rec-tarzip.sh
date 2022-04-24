@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # incremental backup directory
-dirbk=/backup-sc
+dirbk=/backup/directory
 
 # Directory to recover incremental backups to
 # Example /home if you are recovering a users
