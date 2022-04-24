@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# incremental backup directory
+# incremental backup directory where your backup tar files are kept
 dirbk=/backup/directory
 
 # Directory to recover incremental backups to
@@ -8,8 +8,8 @@ recdir="$HOME"/recovered
 
 mkdir -p "$recdir"
 
-cd "$recdir"
+cd "$recdir" || exit
 
-for f in $(find "$dirbk" -type f -iname "*.tgz" | sort -n) ; do
+for f in "$dirbk"/*.tgz ; do
 	tar -x -g /dev/null -f "$f"
 done
