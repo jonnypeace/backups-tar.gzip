@@ -33,7 +33,7 @@ Theres a corresponding script for restoring incremental backups, same idea, chan
 Edit these lines.
 ~~~
 # incremental backup directory, where your backups are stored.
-dirbk=/server-or-drive/that/stores/backups
+dirbk=/backup/directory
 
 # Directory to recover incremental backups to
 # Example /home if you are recovering a users
