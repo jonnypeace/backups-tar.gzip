@@ -10,6 +10,14 @@ _update: 10-02-2023_
 * If you have made an error during testing, it is _best to remove all the files (including the file.inc) and start over_.
 * I've included a -h flag for help, which provides an example of backup and recovery. In the examples provided, i've named this script backup.sh.
 
+Why this and not use tar directly?
+Well...
+
+* You could use tar directly, but the idea here is to manage a little more automation for tar.. Including:
+  - 2 weeks worth of backups always organized
+  - backups are incremental and automated therefore taking up less disk space.
+  - Easier to remember syntax for recovery. What us
+
 ## The backup & recovery script -h (help with examples)
 
 ```bash
