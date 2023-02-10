@@ -10,7 +10,7 @@ _update: 10-02-2023_
 * If you have made an error during testing, it is _best to remove all the files (including the file.inc) and start over_.
 * I've included a -h flag for help, which provides an example of backup and recovery. In the examples provided, i've named this script backup.sh.
 
-## The backup & recovery script
+## The backup & recovery script -h (help with examples)
 
 ```bash
 
