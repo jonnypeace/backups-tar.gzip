@@ -2,6 +2,13 @@
 
 # Author: Jonny Peace
 # This function will provide the tar.gz backup archive utilizing the incremental file for monitoring.
+
+#### If includes_file and dirfrom, then exit with error.
+if [[ $@ =~ ' -b ' && $@ =~ ' -i ' ]]; then
+  printf '\033[91m%s\033[0m\n\n' "When using -i, do not use -b or errors occur. You may as well add all directories to the include file and start again"
+  exit 1
+fi
+
 function backup {
 
   mkdir -p "$dirto"
@@ -37,7 +44,6 @@ function backup {
   # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
   # to exclude a directory after the tar command, example --exclude='/home/user/folder'
 
-  #### If includes_file and dirfrom, then exit with error - maybe, still to look into consequence of this
   if [[ "${no_comp}" ]]; then
     args="-vc -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tar"
   else
@@ -110,6 +116,9 @@ do
     Select -i for includes file
     Select -h for this help
 
+    DO NOT use -b WITH -i flag. If you want to add another directory or file, then add it to the includes file (-i) as there 
+    should be no need to use both.
+
   * Example for backup (IMPORTANT: the -b flag comes at end of command):
 
       ./backup.sh -d /mnt/NFS/backup/ -f filename -b $HOME/files/
@@ -127,8 +136,8 @@ do
 
       ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -b $HOME/files/
   
-    * Example for includes file
-      (IMPORTANT: the -i flag comes at end of command and no -b required):
+  * Example for includes file
+    (IMPORTANT: the -i flag comes at end of command with NO -b ):
 
       ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -i includes.file
 
