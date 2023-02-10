@@ -36,19 +36,25 @@ function backup {
 
   # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
   # to exclude a directory after the tar command, example --exclude='/home/user/folder'
-  if [[ -z "$no_comp" ]]; then
-    if [[ -z "$exc_file" ]]; then
-      tar -vcz -g "$dirto"/"$incfile" -f "$dirto"/"$backfile"-"$day".tgz "$dirfrom"
-    else
-      tar -vcz -g "$dirto"/"$incfile" -X "$exc_file" -f "$dirto"/"$backfile"-"$day".tgz "$dirfrom"
-    fi
+
+  #### If includes_file and dirfrom, then exit with error - maybe, still to look into consequence of this
+  if [[ "${no_comp}" ]]; then
+    args="-vc -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tar"
   else
-    if [[ -z "$exc_file" ]]; then
-      tar -vc -g "$dirto"/"$incfile" -f "$dirto"/"$backfile"-"$day".tar "$dirfrom"
-    else
-      tar -vc -g "$dirto"/"$incfile" -X "$exc_file" -f "$dirto"/"$backfile"-"$day".tar "$dirfrom"
-    fi
+    args="-vcz -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tgz"
   fi
+
+  if [[ "${includes_file}" ]]; then
+    args="${args} -T ${includes_file}"
+  else
+    args="${args} ${dirfrom}"
+  fi
+
+  if [[ "${exc_file}" ]]; then
+    args="-X ${exc_file} ${args}"
+  fi
+
+  tar ${args}
 }
 
 # This function will recover the data, and requires all tar files from the backup directory and the incremental file.
@@ -66,7 +72,7 @@ function recovery {
 # This loop relies on the commandline flags so it knows which function to choose.
 # The reason for the if statements is to account for user input, and whether they include 
 # a forward slash at the end.
-while getopts b:r:d:e:f:nh opt
+while getopts b:r:d:e:f:ni:h opt
 do
   case "$opt" in
     
@@ -85,6 +91,9 @@ do
       exc_file="$OPTARG" ;;
     n)
       no_comp='true' ;;
+    i)
+      includes_file="$OPTARG"
+      backup;;
     f)
       backfile="$OPTARG" ;;
     h)
@@ -97,7 +106,8 @@ do
     Select -d for destination followed by directory to restore or backup to
     Select -f for name of backup file
     Select -n for no compression
-    Select -e for excludes file.
+    Select -e for excludes file
+    Select -i for includes file
     Select -h for this help
 
   * Example for backup (IMPORTANT: the -b flag comes at end of command):
@@ -112,9 +122,15 @@ do
 
       ./backup.sh -d /mnt/NFS/backup/ -f filename -e excludes.file -b $HOME/files/
   
-  * Example for no compression. Just add the -n flag, no further args required:
+  * Example for no compression. Just add the -n flag, no further args required 
+    (IMPORTANT: the -b flag comes at end of command):
 
       ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -b $HOME/files/
+  
+    * Example for includes file
+      (IMPORTANT: the -i flag comes at end of command and no -b required):
+
+      ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -i includes.file
 
 EOF
     exit ;;
