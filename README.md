@@ -16,7 +16,8 @@ Well...
 * You could use tar directly, but the idea here is to manage a little more automation for tar.. Including:
   - 2 weeks worth of backups always organized
   - backups are incremental and automated therefore taking up less disk space.
-  - Easier to remember syntax for recovery. What us
+  - Easier to remember syntax for recovery. What use is a backup, if you cant recover.
+  - Compression and verbose enabled by default
 
 ## The backup & recovery script -h (help with examples)
 
