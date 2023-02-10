@@ -1,40 +1,43 @@
-# Incremental Backups using tar .tgz
+# Incremental Backups using tar and gzip compression
 
-This should work independant of where the scripts are stored, from the backup directory.
+_update: 10-02-2023_
 
-# tarzip.sh - for incremental backup
+# The Concept
+* There is one script now after this _recent update_, which does both backup & restore.
+* The backup script holds onto 2 weeks worth of incremental backups
+* This backup solution uses tar with gz compression.
+* Once you've ensured that you are backing up all relevant files/directories, run on a crontab at a time which suits you.
+* If you have made an error during testing, it is _best to remove all the files (including the file.inc) and start over_.
+* I've included a -h flag for help, which provides an example of backup and recovery. In the examples provided, i've named this script backup.sh.
 
-I've added verbose to the backups, but if being run in a cron job, it's not really necessary.
+## The backup & recovery script
 
-Edit the script and update the directories as necessary (first few lines / variables)
+```bash
 
-~~~
-# incremental backup directory
-dirbk=/EDIT/ME/I/AM/YOUR/BACKUP/DIRECTORY
+    backup.sh script for backup and recovery.
 
-# directory to be backed up
-dirfrom=/home/user
+    Select -b for backup followed by backup directory
+    Select -r for recovery followed by location of backup directory
+    Select -d for destination followed by directory to restore or backup to
+    Select -f for name of backup file
+    Select -n for no compression
+    Select -e for excludes file.
+    Select -h for this help
 
-# incremental file which keeps track of changing
-incfile=file.inc
+  * Example for backup (IMPORTANT: the -b flag comes at end of command):
 
-# name of the file for back up, no extensions required here, just one word avoid spaces.
-backfile=home
-~~~
+      ./backup.sh -d /mnt/NFS/backup/ -f filename -b $HOME/files/
 
-For cron, these are hard coded, no options in the command line, just full automation.
+  * Example for restore (IMPORTANT: the -r flag comes at end of command):
 
-The scripts are set up for daily backups, storing 2 weeks worth of data.
+      ./backup.sh -d $HOME/files/ -r /mnt/NFS/backup/
 
-Theres a corresponding script for restoring incremental backups, same idea, change the directories.
+  * Example of backup utilizing the excludes file (IMPORTANT: the -b flag comes at end of command):
 
-# rec-tarzip.sh for restoring
+      ./backup.sh -d /mnt/NFS/backup/ -f filename -e excludes.file -b $HOME/files/
+  
+  * Example for no compression. Just add the -n flag, no further args required:
 
-Edit these lines.
-~~~
-# incremental backup directory, where your backups are stored.
-dirbk=/backup/directory
+      ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -b $HOME/files/
 
-# Directory to recover incremental backups to
-recdir="$HOME"/recovered
-~~~
+```
