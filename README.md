@@ -50,3 +50,8 @@ Well...
       ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -b $HOME/files/
 
 ```
+
+## Potential improvements
+
+* Considering the use of --one-file-system as a default or option.
+* Considering making the backup timeline more flexible than 2 weeks
