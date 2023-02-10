@@ -3,7 +3,7 @@
 # Author: Jonny Peace
 
 #### If includes_file and dirfrom, then exit with error.
-if [[ $@ =~ ' -b ' && $@ =~ ' -i ' ]]; then
+if [[ $* =~ ' -b ' && $* =~ ' -i ' ]]; then
   printf '\033[91m%s\033[0m\n\n' "When using -i, do not use -b or errors occur. You may as well add all directories to the include file and start again"
   exit 1
 fi
