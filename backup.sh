@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Author: Jonny Peace
-# This function will provide the tar.gz backup archive utilizing the incremental file for monitoring.
 
 #### If includes_file and dirfrom, then exit with error.
 if [[ $@ =~ ' -b ' && $@ =~ ' -i ' ]]; then
@@ -9,6 +8,7 @@ if [[ $@ =~ ' -b ' && $@ =~ ' -i ' ]]; then
   exit 1
 fi
 
+# This function will provide the tar.gz backup archive utilizing the incremental file for monitoring.
 function backup {
 
   mkdir -p "$dirto"
