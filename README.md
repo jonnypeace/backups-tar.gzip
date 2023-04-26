@@ -4,17 +4,17 @@ _update: 10-02-2023_
 
 # The Concept
 * There is one script now after this _recent update_, which does both backup & restore.
-* The backup script holds onto 2 weeks worth of incremental backups
+* The backup script holds onto 2 weeks worth of DAILY incremental backups
 * This backup solution uses tar with gz compression.
-* Once you've ensured that you are backing up all relevant files/directories, run on a crontab at a time which suits you.
-* If you have made an error during testing, it is _best to remove all the files (including the file.inc) and start over_.
+* Once you've ensured that you are backing up all relevant files/directories, run on a crontab at a time each day which suits you.
+* If you have made an error during testing, it is _best to remove all the backup files (including the file.inc) and start over_.
 * I've included a -h flag for help, which provides an example of backup and recovery. In the examples provided, i've named this script backup.sh.
 
 Why this and not use tar directly?
 Well...
 
 * You could use tar directly, but the idea here is to manage a little more automation for tar.. Including:
-  - 2 weeks worth of backups always organized
+  - 2 weeks worth of DAILY backups always organized
   - backups are incremental and automated therefore taking up less disk space.
   - Easier to remember syntax for recovery. What use is a backup, if you cant recover.
   - Compression and verbose enabled by default
@@ -55,3 +55,4 @@ Well...
 
 * Considering the use of --one-file-system as a default or option.
 * Considering making the backup timeline more flexible than 2 weeks
+* Implement a more regular routine for backups, rather than limiting to daily.
