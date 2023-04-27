@@ -28,7 +28,7 @@ function backup {
   # If you want to adjust this, adjust the number 3 accordingly.
   # Example: 3 will keep 2 full weeks of dailing backups.
   if [[ "$dirnum" -ge 3 ]]; then
-    dir1=$(find "$dirto" -name "*week-ending*" | sort | awk 'NR==1{print}')
+    dir1=$(find "$dirto" -name "*week-ending*" -type d | sort | head -n1)
     rm -r "$dir1";
   fi
 
