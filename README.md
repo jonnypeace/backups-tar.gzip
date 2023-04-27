@@ -7,7 +7,7 @@ _update: 10-02-2023_
 * The backup script holds onto 2 weeks worth of DAILY incremental backups
 * This backup solution uses tar with gz compression.
 * Once you've ensured that you are backing up all relevant files/directories, run on a crontab at a time each day which suits you.
-* If you have made an error during testing, it is _best to remove all the backup files (including the file.inc) and start over_.
+* If you have made an error during testing, it is _best to remove all the tar files (including the file.inc) and start over_.
 * I've included a -h flag for help, which provides an example of backup and recovery. In the examples provided, i've named this script backup.sh.
 
 Why this and not use tar directly?
