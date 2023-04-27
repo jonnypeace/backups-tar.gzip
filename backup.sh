@@ -72,7 +72,7 @@ function recovery {
 
   mkdir -p "$dirto"
 
-  for file in "$dirbk"/*.tgz ; do
+  for file in "$dirbk"/*.tar* ; do
     tar -vx -g /dev/null -f "$file" -C "$dirto"
   done
 
