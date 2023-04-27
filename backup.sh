@@ -33,7 +33,7 @@ function backup {
   fi
 
   # Counting the number .tgz files
-  filenum=$(find "$dirto" -name "*.tar*" -type f | wc -l)
+  filenum=$(find "$dirto" -maxdepth 1 -name "*.tar*" -type f | wc -l)
 
   # Once 7 .tgz are created, move them to a new week-ending directory
   # If run daily on cron job, this will be a weeks worth of incremental backups
