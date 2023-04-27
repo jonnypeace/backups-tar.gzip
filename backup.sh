@@ -40,7 +40,7 @@ function backup {
   if [[ "$filenum" -ge 7 ]]; then
     arch_dir="$dirto"/week-ending-"${day%_*}"
     mkdir -p "$arch_dir"
-    mv "$dirto"/*.tgz "$arch_dir"
+    mv "$dirto"/*.tar* "$arch_dir"
     mv "$dirto"/"$incfile" "$arch_dir"
   fi
 
@@ -50,7 +50,7 @@ function backup {
   if [[ "${no_comp}" ]]; then
     args="-vc -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tar"
   else
-    args="-vcz -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tgz"
+    args="-vcz -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tar.gz"
   fi
 
   if [[ "${includes_file}" ]]; then
