@@ -17,7 +17,9 @@ function backup {
   incfile=file.inc
 
   # date for directory and .tgz file naming
-  day=$(date +'%F')
+  # format example 2023-05-28_23.10.05
+  # yyyy-mm-dd_h.m.s 
+  day=$(printf '%(%Y-%m-%d_%H.%M.%S)T\n')
 
   #Check number of directories with week-ending, and count them
   dirnum=$(find "$dirto" -name "*week-ending*" -type d | wc -l)
@@ -31,14 +33,15 @@ function backup {
   fi
 
   # Counting the number .tgz files
-  filenum=$(find "$dirto" -name "*.tgz" -type f | wc -l)
+  filenum=$(find "$dirto" -name "*.tar*" -type f | wc -l)
 
   # Once 7 .tgz are created, move them to a new week-ending directory
   # If run daily on cron job, this will be a weeks worth of incremental backups
   if [[ "$filenum" -ge 7 ]]; then
-    mkdir -p "$dirto"/week-ending-"$day"
-    mv "$dirto"/*.tgz "$dirto"/week-ending-"$day"
-    mv "$dirto"/"$incfile" "$dirto"/week-ending-"$day"
+    arch_dir="$dirto"/week-ending-"${day%_*}"
+    mkdir -p "$arch_dir"
+    mv "$dirto"/*.tgz "$arch_dir"
+    mv "$dirto"/"$incfile" "$arch_dir"
   fi
 
   # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
