@@ -29,7 +29,7 @@ function backup {
   # Example: 3 will keep 2 full weeks of dailing backups.
   if [[ "$dirnum" -ge 3 ]]; then
     dir1=$(find "$dirto" -name "*week-ending*" -type d | sort | head -n1)
-    rm -r "$dir1";
+    rm -r "$dir1"
   fi
 
   # Counting the number .tgz files
