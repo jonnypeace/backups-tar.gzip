@@ -54,5 +54,4 @@ Well...
 ## Potential improvements
 
 * Considering the use of --one-file-system as a default or option.
-* Considering making the backup timeline more flexible than 2 weeks
-* Implement a more regular routine for backups, rather than limiting to daily.
+* Considering making the backup timeline more flexible than 2 weeks of daily backups
