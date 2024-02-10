@@ -169,25 +169,24 @@ do
     DO NOT use -b WITH -i flag. If you want to add another directory or file, then add it to the includes file (-i) as there 
     should be no need to use both.
 
-  * Example for backup (IMPORTANT: the -b flag comes at end of command):
+  * Example for backup:
 
       ./backup.sh -d /mnt/NFS/backup/ -f filename -b $HOME/files/
 
-  * Example for restore (IMPORTANT: the -r flag comes at end of command):
+  * Example for restore:
 
       ./backup.sh -d $HOME/files/ -r /mnt/NFS/backup/
 
-  * Example of backup utilizing the excludes file (IMPORTANT: the -b flag comes at end of command):
+  * Example of backup utilizing the excludes file:
 
       ./backup.sh -d /mnt/NFS/backup/ -f filename -e excludes.file -b $HOME/files/
   
-  * Example for no compression. Just add the -n flag, no further args required 
-    (IMPORTANT: the -b flag comes at end of command):
+  * Example for no compression. Just add the -n flag, no further args required: 
 
       ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -b $HOME/files/
   
   * Example for includes file
-    (IMPORTANT: the -i flag comes at end of command with NO -b ):
+    (IMPORTANT: the -i flag cannot be used with -b ):
 
       ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -i includes.file
 
