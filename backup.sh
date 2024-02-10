@@ -21,24 +21,35 @@ function backup {
   # yyyy-mm-dd_h.m.s 
   day=$(printf '%(%Y-%m-%d_%H.%M.%S)T\n')
 
+  # Enable nullglob to ensure arrays are empty if no matching files are found
+  shopt -s nullglob
   #Check number of directories with week-ending, and count them
-  dirnum=$(find "$dirto" -name "*week-ending*" -type d | wc -l)
+  dirnum=0
+  for dir in "$dirto"/*week-ending*/; do
+      [[ -d "$dir" ]] && ((dirnum++))
+  done
 
   # My aim is to keep two weeks of backups at all times.
   # If you want to adjust this, adjust the number 3 accordingly.
   # Example: 3 will keep 2 full weeks of dailing backups.
-  if [[ "$dirnum" -ge 3 ]]; then
-    dir1=$(find "$dirto" -name "*week-ending*" -type d | sort | head -n1)
-    rm -r "$dir1"
+  backup_dirs=("$dirto"/*week-ending*/)
+  if [[ ${#backup_dirs[@]} -ge 3 ]]; then
+      # The naming convention includes sortable date strings,
+      # simply sorting the names alphabetically should suffice.
+      # More so if this directory is only used by this script.
+      oldest_dir="${backup_dirs[0]}"
+      echo "Removing oldest directory: $oldest_dir"
+      rm -r "$oldest_dir"
   fi
 
-  # Counting the number .tgz files
-  filenum=$(find "$dirto" -maxdepth 1 -name "*.tar*" -type f | wc -l)
+  tar_files=("$dirto"/*.tar "$dirto"/*.tar.gz "$dirto"/*.tgz)
+  filenum=${#tar_files[@]}
+  shopt -u nullglob
 
   # Once 7 .tgz are created, move them to a new week-ending directory
   # If run daily on cron job, this will be a weeks worth of incremental backups
   if [[ "$filenum" -ge 7 ]]; then
-    arch_dir="$dirto"/week-ending-"${day%_*}"
+    arch_dir="${dirto}/week-ending-${day%_*}"
     mkdir -p "$arch_dir"
     mv "$dirto"/*.tar* "$arch_dir"
     mv "$dirto"/"$incfile" "$arch_dir"
@@ -46,37 +57,53 @@ function backup {
 
   # Create .tgz file. Ideally this will work in a cron job, and you'll get daily backups
   # to exclude a directory after the tar command, example --exclude='/home/user/folder'
-
+  declare -a args
   if [[ "${no_comp}" ]]; then
-    args="-vc -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tar"
+    args=("-vc" "-g" "${dirto}/${incfile}" "-f" "${dirto}/${backfile}-${day}.tar")
   else
-    args="-vcz -g ${dirto}/${incfile} -f ${dirto}/${backfile}-${day}.tar.gz"
+    args=("-vcz" "-g" "${dirto}/${incfile}" "-f" "${dirto}/${backfile}-${day}.tar.gz")
   fi
 
   if [[ "${includes_file}" ]]; then
-    args="${args} -T ${includes_file}"
+    args+=("-T" "${includes_file}")
   else
-    args="${args} ${dirfrom}"
+    args+=("${dirfrom}")
   fi
 
   if [[ "${exc_file}" ]]; then
-    args="-X ${exc_file} ${args}"
+    args=("-X" "${exc_file}" "${args[@]}")
+
   fi
 
-  tar ${args}
+  tar "${args[@]}"
 }
 
 # This function will recover the data, and requires all tar files from the backup directory and the incremental file.
 # the -g /dev/null happens for tar to be happy.
+# 
+
 function recovery {
+  (mkdir -p "$dirto"
 
-  mkdir -p "$dirto"
+  shopt -s nullglob
+  shopt -s globstar
 
-  for file in "$dirbk"/*.tar* ; do
+  for file in "$dirbk"/**/*.tar*; do
     tar -vx -g /dev/null -f "$file" -C "$dirto"
-  done
-
+  done)
 }
+
+# function recovery {
+
+#   mkdir -p "$dirto"
+
+#   # Find files and pipe to while read loop
+#   find "$dirbk" -name '*.tar*' | while IFS= read -r file; do
+#     tar -vx -g /dev/null -f "$file" -C "$dirto"
+#   done
+
+
+# }
 
 # This loop relies on the commandline flags so it knows which function to choose.
 # The reason for the if statements is to account for user input, and whether they include 
