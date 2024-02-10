@@ -8,11 +8,40 @@ if [[ $* =~ ' -b ' && $* =~ ' -i ' ]]; then
   exit 1
 fi
 
+function sense_check {
+  echo "Destination Directory set: ${dirto:?'-d (destination) is not set. Exiting.'}"
+  backfile="${backfile:-backupfile}"
+}
+
+function check_includes {
+  [[ ! -f "$includes_file" ]] &&
+    echo "Error: Includes File (-i) is not an actual file ${includes_file:-Includes_File_Not_Set}" &&
+    exit 1   
+}
+
+function check_excludes {
+  [[ ! -f "$excludes_file" ]] &&
+    echo "Error: Excludes File (-e) is not an actual file ${excludes_file:-Excludes_File_Not_Set}" &&
+    exit 1   
+}
+
+function check_dirbk {
+  [[ ! -d "$dirbk" ]] &&
+    echo "Error: Destination directory '$dirbk' does not exist." &&
+    exit 1
+}
+
+function check_backup_dir {
+  [[ ! -d "$dirfrom" ]] &&
+    echo "Error: Backup Directory (-b) does not exist; ${dirfrom:-Backup_Dir_Not_Set}, exitting." &&
+    exit 1
+}
+
 # This function will provide the tar.gz backup archive utilizing the incremental file for monitoring.
 function backup {
 
+  sense_check
   mkdir -p "$dirto"
-
   # incremental file which keeps track of changes (no need to change this)
   incfile=file.inc
 
@@ -65,13 +94,17 @@ function backup {
   fi
 
   if [[ "${includes_file}" ]]; then
+    [[ ! -f "${includes_file}" ]] && 
+      echo "Includes File Not a File: ${includes_file}" && exit 1
     args+=("-T" "${includes_file}")
   else
     args+=("${dirfrom}")
   fi
 
-  if [[ "${exc_file}" ]]; then
-    args=("-X" "${exc_file}" "${args[@]}")
+  if [[ "${excludes_file}" ]]; then
+    [[ ! -f "${excludes_file}" ]] && 
+    echo "Excludes File Not a File: ${excludes_file}" && exit 1
+    args=("-X" "${excludes_file}" "${args[@]}")
 
   fi
 
@@ -79,31 +112,17 @@ function backup {
 }
 
 # This function will recover the data, and requires all tar files from the backup directory and the incremental file.
-# the -g /dev/null happens for tar to be happy.
+# the -g /dev/null keeps tar happy.
 # 
-
 function recovery {
+  sense_check
   (mkdir -p "$dirto"
-
   shopt -s nullglob
   shopt -s globstar
-
   for file in "$dirbk"/**/*.tar*; do
     tar -vx -g /dev/null -f "$file" -C "$dirto"
   done)
 }
-
-# function recovery {
-
-#   mkdir -p "$dirto"
-
-#   # Find files and pipe to while read loop
-#   find "$dirbk" -name '*.tar*' | while IFS= read -r file; do
-#     tar -vx -g /dev/null -f "$file" -C "$dirto"
-#   done
-
-
-# }
 
 # This loop relies on the commandline flags so it knows which function to choose.
 # The reason for the if statements is to account for user input, and whether they include 
@@ -115,21 +134,22 @@ do
     b) 
       dirfrom="$OPTARG"
       if [[ "${dirfrom:0-1}" == '/' ]] ; then dirfrom="${dirfrom::-1}"; fi
-      backup ;;
+      check_backup_dir;;
     r)
       dirbk="$OPTARG"
       if [[ "${dirbk:0-1}" == '/' ]] ; then dirbk="${dirbk::-1}"; fi
-      recovery ;;
+      check_dirbk ;;
     d)
       dirto="$OPTARG"
       if [[ "${dirto:0-1}" == '/' ]] ; then dirto="${dirto::-1}"; fi;;
     e)
-      exc_file="$OPTARG" ;;
+      excludes_file="$OPTARG"
+      check_excludes ;;
     n)
       no_comp='true' ;;
     i)
       includes_file="$OPTARG"
-      backup;;
+      check_includes;;
     f)
       backfile="$OPTARG" ;;
     h)
@@ -178,3 +198,10 @@ EOF
       exit
   esac
 done
+
+[[ -z "$dirfrom" && -z "$includes_file" ]] &&
+  echo "Required an option of -b backup directory or -i includes file, exitting..." && exit 1
+
+[[ -n "$dirfrom" || -n "$includes_file" ]] && backup
+
+[[ -n "$dirbk" && -n "$dirto" ]] && recovery
