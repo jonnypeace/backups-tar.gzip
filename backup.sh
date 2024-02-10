@@ -113,7 +113,6 @@ function backup {
 
 # This function will recover the data, and requires all tar files from the backup directory and the incremental file.
 # the -g /dev/null keeps tar happy.
-# 
 function recovery {
   sense_check
   (mkdir -p "$dirto"
