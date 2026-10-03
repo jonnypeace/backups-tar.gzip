@@ -1,0 +1,27 @@
+projects:
+  - project_name: ollama
+    backup_filename: ollama_backup.tar.gz
+    backup:
+      destination: /home/jonny/backups
+      source: /home/jonny/ollama
+      includes: []
+      excludes:
+        - models
+        - stable-diffusion
+        - sdnext
+    restore:
+      destination: /home/jonny/to-be-disclosed
+      source: /home/jonny/backups
+  - project_name: bingo
+    backup_filename: bingo_backup.tar.gz
+    backup:
+      destination: /home/jonny/backups
+      source: /home/jonny/bingo
+      includes: []
+      excludes:
+        - models
+        - stable-diffusion
+        - sdnext
+    restore:
+      destination: /home/jonny/to-be-disclosed
+      source: /home/jonny/backups
