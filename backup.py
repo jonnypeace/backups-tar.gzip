@@ -18,6 +18,22 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 
+class ConfigNotFoundError(Exception):
+    pass
+
+
+class ProjectNotFoundError(Exception):
+    pass
+
+
+class BackupError(Exception):
+    pass
+
+
+class RestoreError(Exception):
+    pass
+
+
 class GetFileTimeDelta:
     def __init__(self) -> None:
         self.os_name = platform.system()
@@ -165,11 +181,11 @@ class ParseArgs:
 
     def config_validate(self):
         if not self.args.config[0].exists():
-            print("Error: Config does not exist: ", self.args.config[0])
-            sys.exit(1)
+            msg = "Error: Config does not exist: ", self.args.config[0]
+            raise ConfigNotFoundError(msg)
         if not self.args.config[0].is_file():
-            print("Config Cannot be a directory.", self.args.config[0])
-            sys.exit(1)
+            msg = "Config Cannot be a directory.", self.args.config[0]
+            raise ConfigNotFoundError(msg)
 
     def get_args(self):
         return Args(
@@ -188,11 +204,11 @@ def get_project(args: Args, config: Config) -> Project:
             return project
         project_names.append(key)
 
-    print("No project_name matched --project or project_name in yaml")
+    msg = "No project_name matched --project or project_name in yaml"
     print("--project:", args.project_name)
     print("\nProject List:")
     print("  -", "\n  - ".join(project_names))
-    sys.exit(1)
+    raise ProjectNotFoundError(msg)
 
 
 class TarIncremental:
@@ -301,16 +317,15 @@ class TarIncremental:
             if proc.stdout:
                 print(proc.stdout)
             if proc.stderr:
-                print(proc.stderr)
-                sys.exit(1)
+                raise BackupError(proc.stderr)
         finally:
             for tmp_file in self.tmp_list:
                 os.remove(tmp_file)
 
     def restore(self):
         if self.args.restore is None:
-            print("No restore command has been invoked with paths from -> to")
-            sys.exit(1)
+            msg = "No restore command has been invoked with paths from -> to"
+            raise RestoreError(msg)
         restore_from = self.args.restore[0]
         restore_to = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
@@ -331,8 +346,7 @@ class TarIncremental:
             if proc.stdout:
                 print(proc.stdout)
             if proc.stderr:
-                print(proc.stderr)
-                sys.exit(1)
+                raise RestoreError(proc.stderr)
 
 
 def main():
@@ -348,4 +362,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(e)
