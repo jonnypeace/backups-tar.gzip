@@ -8,14 +8,10 @@ defaults:
     keep_archives: 3
 
 projects:
-  ollama:
-    backup_filename: ollama_backup.tar.gz
-    destination: /home/jonny/backups1
-    source: /home/jonny/ollama
-    excludes:
-      - models
-      - stable-diffusion
-      - sdnext
+  docs:
+    backup_filename: docs
+    destination: /home/jonny/backups
+    source: /home/jonny/Documents
 
   bingo:
     backup_filename: bingo_backup.tar.gz

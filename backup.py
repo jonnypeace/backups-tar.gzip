@@ -31,10 +31,10 @@ class GetFileTimeDelta:
         return os.stat(file).st_ctime
 
     def linux_stat(self, file: Path) -> float | None:
-        args: list = ["stat", "-c", "%W", file]
-        proc = subprocess.run(args=args, stdout=True, stderr=True, check=True)
+        args: list = ["stat", "-c", "%W", str(file)]
+        proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
         if proc.stdout:
-            return float(proc.stdout.decode())
+            return float(proc.stdout)
         if proc.stderr:
             raise RuntimeError(proc.stderr)
 
@@ -114,7 +114,7 @@ def update_project(config: Config, name: str) -> Project:
 class Args(BaseModel):
     config: Path
     backup: bool
-    restore: list[Path]
+    restore: list[Path] | None = None
     project_name: str
 
     @model_validator(mode="after")
@@ -203,6 +203,8 @@ class TarIncremental:
         self.min_dir: Path
         self.max_dir: Path
         self.tmp_list: list[str] = []
+        if self.project.destination is not None:
+            self.project.destination.mkdir(exist_ok=True, parents=True)
 
     def rotate_dirs(self):
         now = datetime.now(ZoneInfo("Europe/London")).strftime("%d.%m.%Y.%H.%M.%S")
@@ -227,11 +229,16 @@ class TarIncremental:
             if not directories:
                 self.rotate_dirs()
                 self.handle_dir_structure()
-            directories_delta: list[tuple[Path, int]] = [
-                (x, self.time_delta.calculate_timedelta(x)) for x in directories
-            ]
-            self.min_dir, min_int = self.get_min_dir(directories_delta)
-            self.max_dir, _ = self.get_max_dir(directories_delta)
+            count = sum(1 for x in directories for p in x.iterdir() if p.is_file())
+            if count >= 1:
+                directories_delta: list[tuple[Path, int]] = [
+                    (x, self.time_delta.calculate_timedelta(x)) for x in directories
+                ]
+                self.min_dir, min_int = self.get_min_dir(directories_delta)
+                self.max_dir, _ = self.get_max_dir(directories_delta)
+            else:
+                self.rotate_dirs()  # Start fresh
+                min_int = 0
 
             if min_int >= self.project.retention.consolidate_after:
                 self.rotate_dirs()
@@ -251,24 +258,24 @@ class TarIncremental:
         return tmp_name
 
     def backup_tar_args(self) -> list:
-        args = ["vcz"] if self.project.compress else ["vc"]
+        args = ["-vcz"] if self.project.compress else ["-vc"]
         assert self.project.incremental_filename is not None
         backup_filename = (
-            Path(self.project.backup_filename) / ".tar.gz"
+            f"{Path(self.project.backup_filename)}.tar.gz"
             if self.project.compress
-            else Path(self.project.backup_filename) / ".tar"
+            else f"{Path(self.project.backup_filename)}.tar"
         )
         args += [
             "-g",
-            self.min_dir / self.project.incremental_filename,
+            str(self.min_dir / self.project.incremental_filename),
             "-f",
-            self.min_dir / backup_filename,
+            str(self.min_dir / backup_filename),
         ]
 
         if self.project.includes:
             args += ["-T", self.temp_file(self.project.includes)]
         else:
-            args += [self.project.source]
+            args += [str(self.project.source)]
 
         if self.project.excludes:
             args = ["-X", self.temp_file(self.project.excludes)] + args
@@ -291,11 +298,14 @@ class TarIncremental:
                 os.remove(tmp_file)
 
     def restore(self):
+        if self.args.restore is None:
+            print("No restore command has been invoked with paths from -> to")
+            sys.exit(1)
         restore_from = self.args.restore[0]
         restore_to = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
         files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}
-        files: set[Path] = sorted(files, key=lambda x: x.stat().st_mtime)
+        files = sorted(files, key=lambda x: x.stat().st_mtime)
         args = ["tar", "-vx", "-g", "/dev/null", "-f", restore_to]
         for file in files:
             proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
