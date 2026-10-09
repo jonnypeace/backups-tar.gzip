@@ -66,7 +66,7 @@ class Defaults(BaseModel):
     excludes: list[str] = Field(default_factory=list)
     retention: Retention = Field(default_factory=Retention)
     compress: bool = True
-    incremental_filename = "backup.inc"
+    incremental_filename: str = "backup.inc"
 
 
 class Project(BaseModel):
@@ -158,7 +158,7 @@ class ParseArgs:
             "-r",
             nargs=2,
             type=Path,
-            metavar="RESTORE_FROM RESTORE_TO",
+            metavar=("RESTORE_FROM", "RESTORE_TO"),
         )
         self.args = self.parser.parse_args()
         self.config_validate()
