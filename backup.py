@@ -64,7 +64,7 @@ class GetFileTimeDelta:
             file_time = stat_func(file)
         else:
             file_time = os.stat(file).st_ctime
-        return math.floor((now - file_time) / 60 / 24)
+        return math.floor((now - file_time) / 60 / 60 / 24)
 
 
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
@@ -181,10 +181,10 @@ class ParseArgs:
 
     def config_validate(self):
         if not self.args.config[0].exists():
-            msg = "Error: Config does not exist: ", self.args.config[0]
+            msg = f"Error: Config does not exist: {self.args.config[0]}"
             raise ConfigNotFoundError(msg)
         if not self.args.config[0].is_file():
-            msg = "Config Cannot be a directory.", self.args.config[0]
+            msg = f"Config Cannot be a directory: {self.args.config[0]}"
             raise ConfigNotFoundError(msg)
 
     def get_args(self):
@@ -264,6 +264,7 @@ class TarIncremental:
             else:
                 self.rotate_dirs()  # Start fresh
                 min_int = 0
+                self.max_dir = 0
 
             if min_int >= self.project.retention.consolidate_after:
                 self.rotate_dirs()
