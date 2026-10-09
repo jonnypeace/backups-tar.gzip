@@ -123,7 +123,7 @@ class Args(BaseModel):
             print("Need to run either --backup or --restore. Not both at the same time")
             sys.exit(1)
 
-        if all(x is False for x in (self.backup, self.restore)):
+        if self.backup is False and not self.restore:
             print("Need at least --backup or --restore")
             sys.exit(1)
 
@@ -206,8 +206,12 @@ class TarIncremental:
         if self.project.destination is not None:
             self.project.destination.mkdir(exist_ok=True, parents=True)
 
-    def rotate_dirs(self):
+    def now(self):
         now = datetime.now(ZoneInfo("Europe/London")).strftime("%d.%m.%Y.%H.%M.%S")
+        return now
+
+    def rotate_dirs(self):
+        now = self.now()
         if self.project.destination is None:
             raise AttributeError("Destination needs to be included in yaml")
         self.min_dir = self.project.destination / f"{self.args.project_name}-{now}"
@@ -225,7 +229,12 @@ class TarIncremental:
 
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
-            directories = list(Path(self.project.destination).iterdir())
+            prefix = f"{self.args.project_name}"
+            directories = [
+                d
+                for d in self.project.destination.iterdir()
+                if d.is_dir() and d.name.startswith(prefix)
+            ]
             if not directories:
                 self.rotate_dirs()
                 self.handle_dir_structure()
@@ -258,12 +267,13 @@ class TarIncremental:
         return tmp_name
 
     def backup_tar_args(self) -> list:
+        now = self.now()
         args = ["-vcz"] if self.project.compress else ["-vc"]
         assert self.project.incremental_filename is not None
         backup_filename = (
-            f"{Path(self.project.backup_filename)}.tar.gz"
+            f"{Path(self.project.backup_filename)}-{now}.tar.gz"
             if self.project.compress
-            else f"{Path(self.project.backup_filename)}.tar"
+            else f"{Path(self.project.backup_filename)}-{now}.tar"
         )
         args += [
             "-g",
@@ -306,8 +316,17 @@ class TarIncremental:
         restore_to.mkdir(parents=True, exist_ok=True)
         files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}
         files = sorted(files, key=lambda x: x.stat().st_mtime)
-        args = ["tar", "-vx", "-g", "/dev/null", "-f", restore_to]
         for file in files:
+            args = [
+                "tar",
+                "-vx",
+                "-g",
+                "/dev/null",
+                "-f",
+                str(file),
+                "-C",
+                str(restore_to),
+            ]
             proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
             if proc.stdout:
                 print(proc.stdout)
