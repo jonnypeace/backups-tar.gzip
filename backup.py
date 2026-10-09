@@ -287,11 +287,11 @@ class TarIncremental:
             self.handle_dir_structure()
             args = self.backup_tar_args()
 
-            proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
+            proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
             if proc.stdout:
-                print(proc.stdout.decode())
+                print(proc.stdout)
             if proc.stderr:
-                print(proc.stderr.decode())
+                print(proc.stderr)
                 sys.exit(1)
         finally:
             for tmp_file in self.tmp_list:
@@ -308,11 +308,11 @@ class TarIncremental:
         files = sorted(files, key=lambda x: x.stat().st_mtime)
         args = ["tar", "-vx", "-g", "/dev/null", "-f", restore_to]
         for file in files:
-            proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
+            proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
             if proc.stdout:
-                print(proc.stdout.decode())
+                print(proc.stdout)
             if proc.stderr:
-                print(proc.stderr.decode())
+                print(proc.stderr)
                 sys.exit(1)
 
 
