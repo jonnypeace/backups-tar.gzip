@@ -114,7 +114,7 @@ def update_project(config: Config, name: str) -> Project:
 class Args(BaseModel):
     config: Path
     backup: bool
-    restore: bool
+    restore: list[Path]
     project_name: str
 
     @model_validator(mode="after")
@@ -152,7 +152,14 @@ class ParseArgs:
         )
 
         self.parser.add_argument("--backup", "-b", action="store_true", default=False)
-        self.parser.add_argument("--restore", "-r", action="store_true", default=False)
+
+        self.parser.add_argument(
+            "--restore",
+            "-r",
+            nargs=2,
+            type=Path,
+            metavar="RESTORE_FROM RESTORE_TO",
+        )
         self.args = self.parser.parse_args()
         self.config_validate()
 
@@ -195,11 +202,14 @@ class TarIncremental:
         self.time_delta = GetFileTimeDelta()
         self.min_dir: Path
         self.max_dir: Path
+        self.tmp_list: list[str] = []
 
     def rotate_dirs(self):
         now = datetime.now(ZoneInfo("Europe/London")).strftime("%d.%m.%Y.%H.%M.%S")
-        self.min_dir = self.args.project_name / Path(now)
-        self.min_dir.mkdir(exist_ok=True)
+        if self.project.destination is None:
+            raise AttributeError("Destination needs to be included in yaml")
+        self.min_dir = self.project.destination / f"{self.args.project_name}-{now}"
+        self.min_dir.mkdir(parents=True, exist_ok=True)
 
     def get_min_dir(
         self, directories_delta: list[tuple[Path, int]]
@@ -223,7 +233,7 @@ class TarIncremental:
             self.min_dir, min_int = self.get_min_dir(directories_delta)
             self.max_dir, _ = self.get_max_dir(directories_delta)
 
-            if min_int >= 1:
+            if min_int >= self.project.retention.consolidate_after:
                 self.rotate_dirs()
 
             if len(directories) >= self.project.retention.keep_archives:
@@ -237,6 +247,7 @@ class TarIncremental:
             tmp.flush()
             tmp.seek(0)
             tmp_name = tmp.name
+        self.tmp_list.append(tmp.name)
         return tmp_name
 
     def backup_tar_args(self) -> list:
@@ -265,16 +276,34 @@ class TarIncremental:
         return ["tar"] + args
 
     def backup(self):
-        self.handle_dir_structure()
-        args = self.backup_tar_args()
+        try:
+            self.handle_dir_structure()
+            args = self.backup_tar_args()
 
-        proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
-        if proc.stderr:
-            print(proc.stderr)
-        if proc.stdout:
-            print(proc.stdout)
+            proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
+            if proc.stdout:
+                print(proc.stdout.decode())
+            if proc.stderr:
+                print(proc.stderr.decode())
+                sys.exit(1)
+        finally:
+            for tmp_file in self.tmp_list:
+                os.remove(tmp_file)
 
-    def restore(self): ...
+    def restore(self):
+        restore_from = self.args.restore[0]
+        restore_to = self.args.restore[1]
+        restore_to.mkdir(parents=True, exist_ok=True)
+        files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}
+        files: set[Path] = sorted(files, key=lambda x: x.stat().st_mtime)
+        args = ["tar", "-vx", "-g", "/dev/null", "-f", restore_to]
+        for file in files:
+            proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
+            if proc.stdout:
+                print(proc.stdout.decode())
+            if proc.stderr:
+                print(proc.stderr.decode())
+                sys.exit(1)
 
 
 def main():
