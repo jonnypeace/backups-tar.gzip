@@ -1,25 +1,54 @@
 #!/usr/bin/env python3
 
 import argparse
+import math
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
-import yaml
-from typing import Annotated, Literal
-from pydantic import BaseModel, StringConstraints, Field, model_validator, ConfigDict
 import time
-import re
+from datetime import datetime
+from pathlib import Path
+from typing import Annotated
+from zoneinfo import ZoneInfo
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 
-# For my future me when i check the backed up files
-# FILE = Path("backup.sh")
+class GetFileTimeDelta:
+    def __init__(self) -> None:
+        self.os_name = platform.system()
+        self.stat_map: dict = {
+            "Windows": self.win_stat,
+            "Linux": self.linux_stat,
+            "Darwin": self.mac_stat,
+        }
 
-# TIME_S = os.stat(FILE).st_mtime
-# NOW = time.time()
+    def win_stat(self, file: Path) -> float:
+        return os.stat(file).st_ctime
 
-# print((NOW - TIME_S) / 60 / 24)
+    def linux_stat(self, file: Path) -> float | None:
+        args: list = ["stat", "-c", "%W", file]
+        proc = subprocess.run(args=args, stdout=True, stderr=True, check=True)
+        if proc.stdout:
+            return float(proc.stdout.decode())
+        if proc.stderr:
+            raise RuntimeError(proc.stderr)
+
+    def mac_stat(self, file: Path) -> float:
+        return os.stat(file).st_birthtime  # type: ignore Not available on linux
+
+    def calculate_timedelta(self, file: Path) -> int:
+        stat_func = self.stat_map.get(self.os_name)
+        now = time.time()
+        if stat_func is not None:
+            file_time = stat_func(file)
+        else:
+            file_time = os.stat(file).st_ctime
+        return math.floor((now - file_time) / 60 / 24)
 
 
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
@@ -37,6 +66,7 @@ class Defaults(BaseModel):
     excludes: list[str] = Field(default_factory=list)
     retention: Retention = Field(default_factory=Retention)
     compress: bool = True
+    incremental_filename = "backup.inc"
 
 
 class Project(BaseModel):
@@ -47,6 +77,8 @@ class Project(BaseModel):
     compress: bool | None = None
     includes: list[str] = Field(default_factory=list)
     excludes: list[str] = Field(default_factory=list)
+    incremental_filename: str | None = None
+    backup_filename: str
 
     @model_validator(mode="after")
     def _source_xor_includes(self) -> Project:
@@ -72,6 +104,8 @@ def update_project(config: Config, name: str) -> Project:
         project.retention = d.retention
     if project.compress is None:
         project.compress = d.compress
+    if project.incremental_filename is None:
+        project.incremental_filename = d.incremental_filename
 
     project.excludes = project.excludes + d.excludes
     return project
@@ -158,8 +192,87 @@ class TarIncremental:
     def __init__(self, args: Args, project: Project):
         self.args = args
         self.project = project
+        self.time_delta = GetFileTimeDelta()
+        self.min_dir: Path
+        self.max_dir: Path
 
-    def backup(self): ...
+    def rotate_dirs(self):
+        now = datetime.now(ZoneInfo("Europe/London")).strftime("%d.%m.%Y.%H.%M.%S")
+        self.min_dir = self.args.project_name / Path(now)
+        self.min_dir.mkdir(exist_ok=True)
+
+    def get_min_dir(
+        self, directories_delta: list[tuple[Path, int]]
+    ) -> tuple[Path, int]:
+        return min(directories_delta, key=lambda pair: pair[1])
+
+    def get_max_dir(
+        self, directories_delta: list[tuple[Path, int]]
+    ) -> tuple[Path, int]:
+        return max(directories_delta, key=lambda pair: pair[1])
+
+    def handle_dir_structure(self):
+        if self.project.destination is not None and self.project.retention is not None:
+            directories = list(Path(self.project.destination).iterdir())
+            if not directories:
+                self.rotate_dirs()
+                self.handle_dir_structure()
+            directories_delta: list[tuple[Path, int]] = [
+                (x, self.time_delta.calculate_timedelta(x)) for x in directories
+            ]
+            self.min_dir, min_int = self.get_min_dir(directories_delta)
+            self.max_dir, _ = self.get_max_dir(directories_delta)
+
+            if min_int >= 1:
+                self.rotate_dirs()
+
+            if len(directories) >= self.project.retention.keep_archives:
+                shutil.rmtree(self.max_dir)
+
+    def temp_file(self, data: list[str]):
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write("\n".join(data))
+            tmp.flush()
+            tmp.seek(0)
+            tmp_name = tmp.name
+        return tmp_name
+
+    def backup_tar_args(self) -> list:
+        args = ["vcz"] if self.project.compress else ["vc"]
+        assert self.project.incremental_filename is not None
+        backup_filename = (
+            Path(self.project.backup_filename) / ".tar.gz"
+            if self.project.compress
+            else Path(self.project.backup_filename) / ".tar"
+        )
+        args += [
+            "-g",
+            self.min_dir / self.project.incremental_filename,
+            "-f",
+            self.min_dir / backup_filename,
+        ]
+
+        if self.project.includes:
+            args += ["-T", self.temp_file(self.project.includes)]
+        else:
+            args += [self.project.source]
+
+        if self.project.excludes:
+            args = ["-X", self.temp_file(self.project.excludes)] + args
+
+        return ["tar"] + args
+
+    def backup(self):
+        self.handle_dir_structure()
+        args = self.backup_tar_args()
+
+        proc = subprocess.run(args=args, stderr=True, stdout=True, check=True)
+        if proc.stderr:
+            print(proc.stderr)
+        if proc.stdout:
+            print(proc.stdout)
 
     def restore(self): ...
 
