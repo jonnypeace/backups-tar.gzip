@@ -15,7 +15,14 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 
 class ConfigNotFoundError(Exception):
@@ -70,6 +77,15 @@ class GetFileTimeDelta:
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
 
 
+def _abs_path(v: Path) -> Path:
+    if not v.is_absolute():
+        raise ValueError(f"paths must be absolute, got '{v}'")
+    return v
+
+
+AbsPath = Annotated[Path, AfterValidator(_abs_path)]
+
+
 class Retention(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     consolidate_after: int = 7
@@ -78,7 +94,7 @@ class Retention(BaseModel):
 
 class Defaults(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    destination: Path = Path.home() / "backups"
+    destination: AbsPath = Path.home() / "backups"
     excludes: list[str] = Field(default_factory=list)
     retention: Retention = Field(default_factory=Retention)
     compress: bool = True
@@ -87,8 +103,8 @@ class Defaults(BaseModel):
 
 class Project(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    source: Path | None = None
-    destination: Path | None = None
+    source: AbsPath | None = None
+    destination: AbsPath | None = None
     retention: Retention | None = None
     compress: bool | None = None
     includes: list[str] = Field(default_factory=list)
@@ -133,6 +149,16 @@ def update_project(config: Config, name: str) -> Project:
         project.incremental_filename = d.incremental_filename
 
     project.excludes = project.excludes + d.excludes
+    if (
+        project.source
+        and project.destination == project.source
+        or project.source
+        and project.destination in project.source.parents
+    ):
+        raise ValueError(
+            f"destination {project.destination} is inside source {project.source}"
+        )
+
     return project
 
 
@@ -273,7 +299,6 @@ class TarIncremental:
             else:
                 self.rotate_dirs()  # Start fresh
                 min_int = 0
-                self.max_dir = 0
 
             if min_int >= self.project.retention.consolidate_after:
                 self.rotate_dirs()
@@ -326,8 +351,10 @@ class TarIncremental:
             proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
             if proc.stdout:
                 print(proc.stdout)
-            if proc.stderr:
+            if proc.returncode >= 2:
                 raise BackupError(proc.stderr)
+            if proc.stderr:
+                print(proc.stderr, file=sys.stderr)
         finally:
             for tmp_file in self.tmp_list:
                 os.remove(tmp_file)
@@ -355,8 +382,10 @@ class TarIncremental:
             proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
             if proc.stdout:
                 print(proc.stdout)
+            if proc.returncode >= 2:
+                raise BackupError(proc.stderr)
             if proc.stderr:
-                raise RestoreError(proc.stderr)
+                print(proc.stderr, file=sys.stderr)
 
 
 def main():
@@ -374,5 +403,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        print(e)
+    except (ConfigNotFoundError, ProjectNotFoundError, BackupError, RestoreError) as e:
+        print(f"error: {e}", file=sys.stderr)
