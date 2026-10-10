@@ -64,7 +64,7 @@ class GetFileTimeDelta:
             file_time = stat_func(file)
         else:
             file_time = os.stat(file).st_ctime
-        return math.floor((now - file_time) / 60 / 60 / 24)
+        return math.floor((now - file_time) / 86400)
 
 
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
