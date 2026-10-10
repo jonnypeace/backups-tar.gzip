@@ -189,17 +189,11 @@ class ParseArgs:
             formatter_class=argparse.RawTextHelpFormatter,
         )
         self.parser.add_argument(
-            "--config",
-            "-c",
-            nargs=1,
-            type=Path,
-            metavar="YAML_FILE_PATH",
-            default=Path.home() / ".config" / "pytar/config.yaml",
-            required=True,
+            "--config", "-c", type=Path, metavar="YAML_FILE_PATH", required=True
         )
 
         self.parser.add_argument(
-            "--project", "-p", nargs=1, type=str, metavar="PROJECT_NAME", required=True
+            "--project", "-p", type=str, metavar="PROJECT_NAME", required=True
         )
 
         self.parser.add_argument("--backup", "-b", action="store_true", default=False)
@@ -215,19 +209,19 @@ class ParseArgs:
         self.config_validate()
 
     def config_validate(self):
-        if not self.args.config[0].exists():
-            msg = f"Error: Config does not exist: {self.args.config[0]}"
+        if not self.args.config.exists():
+            msg = f"Error: Config does not exist: {self.args.config}"
             raise ConfigNotFoundError(msg)
-        if not self.args.config[0].is_file():
-            msg = f"Config Cannot be a directory: {self.args.config[0]}"
+        if not self.args.config.is_file():
+            msg = f"Config Cannot be a directory: {self.args.config}"
             raise ConfigNotFoundError(msg)
 
     def get_args(self):
         return Args(
-            config=self.args.config[0],
+            config=self.args.config,
             backup=self.args.backup,
             restore=self.args.restore,
-            project_name=self.args.project[0],
+            project_name=self.args.project,
         )
 
 
@@ -322,9 +316,9 @@ class TarIncremental:
         args = ["-vcz"] if self.project.compress else ["-vc"]
         assert self.project.incremental_filename is not None
         backup_filename = (
-            f"{Path(self.project.backup_filename)}-{now}.tar.gz"
+            f"{self.project.backup_filename}-{now}.tar.gz"
             if self.project.compress
-            else f"{Path(self.project.backup_filename)}-{now}.tar"
+            else f"{self.project.backup_filename}-{now}.tar"
         )
         args += [
             "-g",

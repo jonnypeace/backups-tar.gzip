@@ -14,7 +14,7 @@ projects:
     source: /home/jonny/Documents
 
   bingo:
-    backup_filename: bingo_backup.tar.gz
+    backup_filename: bingo_backup
     includes:
       - /home/jonny/bingo
       - /home/jonny/bingo1
