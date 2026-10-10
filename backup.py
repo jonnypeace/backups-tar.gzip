@@ -104,6 +104,15 @@ class Project(BaseModel):
             raise ValueError("project needs a source directory or an includes list")
         return self
 
+    @model_validator(mode="after")
+    def _file_extension(self) -> Project:
+        name = self.backup_filename
+        if name.endswith((".tar", ".tar.gz", ".tgz")):
+            raise ValueError(
+                "backup_filename should have no extension; it is added automatically"
+            )
+        return self
+
 
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
