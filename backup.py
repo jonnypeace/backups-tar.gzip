@@ -19,7 +19,6 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    ValidationError,
     model_validator,
 )
 
@@ -43,6 +42,10 @@ class RestoreError(Exception):
 
 
 class FileDirectoryRenameError(Exception):
+    pass
+
+
+class ArgsError(Exception):
     pass
 
 
@@ -95,14 +98,17 @@ class Retention(BaseModel):
 
 class Defaults(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    destination: AbsPath = Path.home() / "backups"
+    destination: AbsPath = Field(
+        default=Path.home() / "backups",
+        validate_default=True,
+    )
     excludes: list[str] = Field(default_factory=list)
     retention: Retention = Field(default_factory=Retention)
     compress: bool = True
 
 
 class Project(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_default=True)
     source: AbsPath | None = None
     destination: AbsPath | None = None
     retention: Retention | None = None
@@ -186,11 +192,11 @@ class Args(BaseModel):
     def check_args(self) -> Args:
         if self.backup and self.restore:
             msg = "Need to run either --backup or --restore. Not both at the same time"
-            raise ValidationError(msg)
+            raise ArgsError(msg)
 
         if self.backup is False and not self.restore:
             msg = "Need at least --backup or --restore"
-            raise ValidationError(msg)
+            raise ArgsError(msg)
 
         return self
 
@@ -240,10 +246,9 @@ class ParseArgs:
 
 
 def get_project(args: Args, config: Config) -> Project:
-    for key in config.projects:
-        if args.project_name == key:
-            project = update_project(config=config, name=key)
-            return project
+    project_found = config.projects.get(args.project_name)
+    if project_found is not None:
+        return update_project(config=config, name=args.project_name)
 
     project_names = list(config.projects.keys())
 
@@ -435,7 +440,7 @@ if __name__ == "__main__":
         ProjectNotFoundError,
         BackupError,
         RestoreError,
-        ValidationError,
+        ArgsError,
         yaml.YAMLError,
         FileDirectoryRenameError,
     ) as e:
