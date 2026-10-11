@@ -22,6 +22,8 @@ from pydantic import (
     model_validator,
 )
 
+INCREMENTAL_FILENAME = "backup.inc"
+
 
 class ConfigNotFoundError(Exception):
     pass
@@ -39,6 +41,10 @@ class RestoreError(Exception):
     pass
 
 
+class FileDirectoryRenameError(Exception):
+    pass
+
+
 DATE_TIME_FORMAT = "%Y.%m.%d.%H.%M.%S"
 REGEX = re.compile(r"(\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})")
 
@@ -50,11 +56,11 @@ def now_time() -> str:
 def parse_timestamp(file: str) -> tuple[int, int, int, int, int, int]:
     found = REGEX.search(file)
     if not found:
-        raise RuntimeError(
+        raise FileDirectoryRenameError(
             f"File or folder names do not have correct datetime format in path name:\n{file}"
         )
-    found_tuple = tuple(int(x) for x in found.group(1).split("."))
-    return found_tuple  # type: ignore
+    y, m, d, h, mi, s = (int(x) for x in found.group(1).split("."))
+    return (y, m, d, h, mi, s)
 
 
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
@@ -81,7 +87,6 @@ class Defaults(BaseModel):
     excludes: list[str] = Field(default_factory=list)
     retention: Retention = Field(default_factory=Retention)
     compress: bool = True
-    incremental_filename: str = "backup.inc"
 
 
 class Project(BaseModel):
@@ -92,7 +97,6 @@ class Project(BaseModel):
     compress: bool | None = None
     includes: list[str] = Field(default_factory=list)
     excludes: list[str] = Field(default_factory=list)
-    incremental_filename: str | None = None
     backup_filename: str
 
     @model_validator(mode="after")
@@ -106,7 +110,8 @@ class Project(BaseModel):
     @model_validator(mode="after")
     def _file_extension(self) -> Project:
         name = self.backup_filename
-        if name.endswith((".tar", ".tar.gz", ".tgz")):
+        regex = re.compile(r"[\\/]+")
+        if name.endswith((".tar", ".tar.gz", ".tgz")) or regex.findall(name):
             raise ValueError(
                 "backup_filename should have no extension; it is added automatically"
             )
@@ -139,12 +144,12 @@ def update_project(config: Config, name: str) -> Project:
         project.retention = d.retention
     if project.compress is None:
         project.compress = d.compress
-    if project.incremental_filename is None:
-        project.incremental_filename = d.incremental_filename
 
     project.excludes = project.excludes + d.excludes
     if project.source:
         _check_not_recursive(source=project.source, destination=project.destination)
+    for dir in project.includes:
+        _check_not_recursive(source=Path(dir), destination=project.destination)
 
     return project
 
@@ -159,13 +164,11 @@ class Args(BaseModel):
     def check_args(self) -> Args:
         if self.backup and self.restore:
             msg = "Need to run either --backup or --restore. Not both at the same time"
-            print(msg)
-            raise RuntimeError(msg)
+            raise ValidationError(msg)
 
         if self.backup is False and not self.restore:
             msg = "Need at least --backup or --restore"
-            print(msg)
-            raise RuntimeError(msg)
+            raise ValidationError(msg)
 
         return self
 
@@ -215,12 +218,12 @@ class ParseArgs:
 
 
 def get_project(args: Args, config: Config) -> Project:
-    project_names: list = []
     for key in config.projects:
         if args.project_name == key:
             project = update_project(config=config, name=key)
             return project
-        project_names.append(key)
+
+    project_names = list(config.projects.keys())
 
     msg = "No project_name matched --project or project_name in yaml"
     print("--project:", args.project_name)
@@ -246,16 +249,6 @@ class TarIncremental:
         self.min_dir = self.project.destination / f"{self.args.project_name}-{now}"
         self.min_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_min_dir(
-        self, directories_delta: list[tuple[Path, int]]
-    ) -> tuple[Path, int]:
-        return min(directories_delta, key=lambda pair: pair[1])
-
-    def get_max_dir(
-        self, directories_delta: list[tuple[Path, int]]
-    ) -> tuple[Path, int]:
-        return max(directories_delta, key=lambda pair: pair[1])
-
     def _get_dirs(self, prefix: str) -> list[Path]:
         assert self.project.destination is not None
         directories = [
@@ -267,7 +260,7 @@ class TarIncremental:
 
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
-            prefix = self.args.project_name
+            prefix = self.args.project_name + "-"
             directories: list[Path] = self._get_dirs(prefix=prefix)
             if not directories:
                 self.rotate_dirs()
@@ -283,8 +276,12 @@ class TarIncremental:
                 self.rotate_dirs()
 
             directories = self._get_dirs(prefix=prefix)
-            if len(directories) > self.project.retention.keep_archives:
+            number_of_dirs = len(directories)
+            while number_of_dirs > self.project.retention.keep_archives:
                 shutil.rmtree(self.max_dir)
+                number_of_dirs -= 1
+                directories = self._get_dirs(prefix=prefix)
+                self.max_dir = max(directories, key=lambda d: parse_timestamp(d.name))
 
     def temp_file(self, data: list[str]):
         with tempfile.NamedTemporaryFile(
@@ -300,7 +297,6 @@ class TarIncremental:
     def backup_tar_args(self) -> list:
         now = now_time()
         args = ["-vcz"] if self.project.compress else ["-vc"]
-        assert self.project.incremental_filename is not None
         backup_filename = (
             f"{self.project.backup_filename}-{now}.tar.gz"
             if self.project.compress
@@ -308,7 +304,7 @@ class TarIncremental:
         )
         args += [
             "-g",
-            str(self.min_dir / self.project.incremental_filename),
+            str(self.min_dir / INCREMENTAL_FILENAME),
             "-f",
             str(self.min_dir / backup_filename),
         ]
@@ -346,19 +342,14 @@ class TarIncremental:
             msg = "No restore command has been invoked with paths from -> to"
             raise RestoreError(msg)
         restore_from = self.args.restore[0]
-        if not restore_from.exists():
-            raise RestoreError(f"Restore From does not exist: {restore_from}")
+        if not restore_from.exists() or restore_from.is_file():
+            raise RestoreError(
+                f"Restore From does not exist or is a file: {restore_from}"
+            )
         restore_to = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
         files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}
-        files = sorted(
-            files,
-            key=lambda p: (
-                (0, parse_timestamp(p.name))
-                if parse_timestamp(p.name)
-                else (1, p.stat().st_mtime)
-            ),
-        )
+        files = sorted(files, key=lambda p: parse_timestamp(p.name))
         for file in files:
             args = [
                 "tar",
@@ -376,14 +367,14 @@ class TarIncremental:
             if proc.stdout:
                 print(proc.stdout)
             if proc.returncode >= 2:
-                raise BackupError(proc.stderr)
+                raise RestoreError(proc.stderr)
             if proc.stderr:
                 print(proc.stderr, file=sys.stderr)
 
 
 def main():
     args: Args = ParseArgs().get_args()
-    with open(args.config) as file:
+    with open(args.config, encoding="utf-8") as file:
         config = Config.model_validate(yaml.safe_load(file))
     project = get_project(args, config)
     tar = TarIncremental(args, project)
@@ -396,7 +387,13 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (yaml.YAMLError, ValidationError) as e:
-        print(f"error: {e}", file=sys.stderr)
-    except (ConfigNotFoundError, ProjectNotFoundError, BackupError, RestoreError) as e:
+    except (
+        ConfigNotFoundError,
+        ProjectNotFoundError,
+        BackupError,
+        RestoreError,
+        ValidationError,
+        yaml.YAMLError,
+        FileDirectoryRenameError,
+    ) as e:
         print(f"error: {e}", file=sys.stderr)

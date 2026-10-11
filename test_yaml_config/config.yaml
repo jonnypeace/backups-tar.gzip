@@ -2,7 +2,6 @@ defaults:
   destination: /home/jonny/backups
   excludes: []
   compress: true
-  incremental_filename: backup.inc # Used to track changed between backups.
   retention:
     consolidate_after: 7 # Number of days
     keep_archives: 3
