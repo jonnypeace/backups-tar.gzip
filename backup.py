@@ -10,6 +10,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
+from functools import cached_property
 
 import yaml
 from pydantic import (
@@ -50,10 +51,18 @@ REGEX = re.compile(r"(\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})")
 
 
 def now_time() -> str:
+    """
+    Returns the date using system time YYYY.MM.DD.HH.MM.SS
+    """
     return datetime.now().astimezone().strftime(DATE_TIME_FORMAT)
 
 
 def parse_timestamp(file: str) -> tuple[int, int, int, int, int, int]:
+    """
+    Parse filename strings which were created by backup.py
+
+    Returns a tuple with year, month, day, hours, mins, secs.
+    """
     found = REGEX.search(file)
     if not found:
         raise FileDirectoryRenameError(
@@ -67,6 +76,9 @@ ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
 
 
 def _abs_path(v: Path) -> Path:
+    """
+    This is for encorcing absolute paths in pydantic
+    """
     if not v.is_absolute():
         raise ValueError(f"paths must be absolute, got '{v}'")
     return v
@@ -125,6 +137,9 @@ class Config(BaseModel):
 
 
 def _check_not_recursive(source: Path, destination: Path) -> None:
+    """
+    This is to ensure the archives don't archive themselves.
+    """
     source = source.resolve()
     destination = destination.resolve()
     # True when destination == source OR destination is nested inside source
@@ -136,6 +151,13 @@ def _check_not_recursive(source: Path, destination: Path) -> None:
 
 
 def update_project(config: Config, name: str) -> Project:
+    """
+    Apply project entries against default entries.
+
+    Returns:
+        Project
+    """
+
     project = config.projects[name].model_copy()
     d = config.defaults
     if project.destination is None:
@@ -234,20 +256,33 @@ def get_project(args: Args, config: Config) -> Project:
 
 class TarIncremental:
     def __init__(self, args: Args, project: Project):
+        """
+        This is for the incremental backup functionality.
+
+        Args:
+            args: Args
+            project: Project
+
+        Attributes:
+            youngest_dir: Path (This is for storing the youngest directory)
+            oldest_dir: Path (This is for storing the oldest directory)
+            tmp_list: list[str] (Stores temporary files for deletion at the end)
+        """
         self.args = args
         self.project = project
-        self.min_dir: Path
-        self.max_dir: Path
+        self.youngest_dir: Path
+        self.oldest_dir: Path
         self.tmp_list: list[str] = []
         if self.project.destination is not None:
             self.project.destination.mkdir(exist_ok=True, parents=True)
 
     def rotate_dirs(self):
-        now = now_time()
         if self.project.destination is None:
             raise AttributeError("Destination needs to be included in yaml")
-        self.min_dir = self.project.destination / f"{self.args.project_name}-{now}"
-        self.min_dir.mkdir(parents=True, exist_ok=True)
+        self.youngest_dir = (
+            self.project.destination / f"{self.args.project_name}-{self.now}"
+        )
+        self.youngest_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_dirs(self, prefix: str) -> list[Path]:
         assert self.project.destination is not None
@@ -258,6 +293,11 @@ class TarIncremental:
         ]
         return directories
 
+    @cached_property
+    def now(self) -> str:
+        now = now_time()
+        return now
+
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
             prefix = self.args.project_name + "-"
@@ -266,10 +306,12 @@ class TarIncremental:
                 self.rotate_dirs()
                 directories = self._get_dirs(prefix=prefix)
 
-            self.min_dir = min(directories, key=lambda d: parse_timestamp(d.name))
-            self.max_dir = max(directories, key=lambda d: parse_timestamp(d.name))
+            self.oldest_dir = min(directories, key=lambda d: parse_timestamp(d.name))
+            self.youngest_dir = max(directories, key=lambda d: parse_timestamp(d.name))
             now = datetime.now().astimezone()
-            created = datetime(*parse_timestamp(self.min_dir.name), tzinfo=now.tzinfo)
+            created = datetime(
+                *parse_timestamp(self.oldest_dir.name), tzinfo=now.tzinfo
+            )
             if now - created >= timedelta(
                 days=self.project.retention.consolidate_after
             ):
@@ -278,10 +320,12 @@ class TarIncremental:
             directories = self._get_dirs(prefix=prefix)
             number_of_dirs = len(directories)
             while number_of_dirs > self.project.retention.keep_archives:
-                shutil.rmtree(self.max_dir)
+                shutil.rmtree(self.oldest_dir)
                 number_of_dirs -= 1
                 directories = self._get_dirs(prefix=prefix)
-                self.max_dir = max(directories, key=lambda d: parse_timestamp(d.name))
+                self.oldest_dir = min(
+                    directories, key=lambda d: parse_timestamp(d.name)
+                )
 
     def temp_file(self, data: list[str]):
         with tempfile.NamedTemporaryFile(
@@ -295,18 +339,17 @@ class TarIncremental:
         return tmp_name
 
     def backup_tar_args(self) -> list:
-        now = now_time()
         args = ["-vcz"] if self.project.compress else ["-vc"]
         backup_filename = (
-            f"{self.project.backup_filename}-{now}.tar.gz"
+            f"{self.project.backup_filename}-{self.now}.tar.gz"
             if self.project.compress
-            else f"{self.project.backup_filename}-{now}.tar"
+            else f"{self.project.backup_filename}-{self.now}.tar"
         )
         args += [
             "-g",
-            str(self.min_dir / INCREMENTAL_FILENAME),
+            str(self.youngest_dir / INCREMENTAL_FILENAME),
             "-f",
-            str(self.min_dir / backup_filename),
+            str(self.youngest_dir / backup_filename),
         ]
 
         if self.project.includes:
