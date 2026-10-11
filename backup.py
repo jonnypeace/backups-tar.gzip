@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 
 import argparse
-import math
 import os
-import platform
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
-from zoneinfo import ZoneInfo
 
 import yaml
 from pydantic import (
@@ -21,6 +18,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    ValidationError,
     model_validator,
 )
 
@@ -41,37 +39,22 @@ class RestoreError(Exception):
     pass
 
 
-class GetFileTimeDelta:
-    def __init__(self) -> None:
-        self.os_name = platform.system()
-        self.stat_map: dict = {
-            "Windows": self.win_stat,
-            "Linux": self.linux_stat,
-            "Darwin": self.mac_stat,
-        }
+DATE_TIME_FORMAT = "%Y.%m.%d.%H.%M.%S"
+REGEX = re.compile(r"(\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})")
 
-    def win_stat(self, file: Path) -> float:
-        return os.stat(file).st_ctime
 
-    def linux_stat(self, file: Path) -> float | None:
-        args: list = ["stat", "-c", "%W", str(file)]
-        proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
-        if proc.stdout:
-            return float(proc.stdout)
-        if proc.stderr:
-            raise RuntimeError(proc.stderr)
+def now_time() -> str:
+    return datetime.now().astimezone().strftime(DATE_TIME_FORMAT)
 
-    def mac_stat(self, file: Path) -> float:
-        return os.stat(file).st_birthtime  # type: ignore Not available on linux
 
-    def calculate_timedelta(self, file: Path) -> int:
-        stat_func = self.stat_map.get(self.os_name)
-        now = time.time()
-        if stat_func is not None:
-            file_time = stat_func(file)
-        else:
-            file_time = os.stat(file).st_ctime
-        return math.floor((now - file_time) / 86400)
+def parse_timestamp(file: str) -> tuple[int, int, int, int, int, int]:
+    found = REGEX.search(file)
+    if not found:
+        raise RuntimeError(
+            f"File or folder names do not have correct datetime format in path name:\n{file}"
+        )
+    found_tuple = tuple(int(x) for x in found.group(1).split("."))
+    return found_tuple  # type: ignore
 
 
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
@@ -136,6 +119,17 @@ class Config(BaseModel):
     projects: dict[ProjectName, Project]
 
 
+def _check_not_recursive(source: Path, destination: Path) -> None:
+    source = source.resolve()
+    destination = destination.resolve()
+    # True when destination == source OR destination is nested inside source
+    if destination.is_relative_to(source):
+        raise ValueError(
+            f"destination {destination} is inside source {source}; "
+            "the backup would archive itself"
+        )
+
+
 def update_project(config: Config, name: str) -> Project:
     project = config.projects[name].model_copy()
     d = config.defaults
@@ -149,15 +143,8 @@ def update_project(config: Config, name: str) -> Project:
         project.incremental_filename = d.incremental_filename
 
     project.excludes = project.excludes + d.excludes
-    if (
-        project.source
-        and project.destination == project.source
-        or project.source
-        and project.destination in project.source.parents
-    ):
-        raise ValueError(
-            f"destination {project.destination} is inside source {project.source}"
-        )
+    if project.source:
+        _check_not_recursive(source=project.source, destination=project.destination)
 
     return project
 
@@ -170,13 +157,15 @@ class Args(BaseModel):
 
     @model_validator(mode="after")
     def check_args(self) -> Args:
-        if all([self.backup, self.restore]):
-            print("Need to run either --backup or --restore. Not both at the same time")
-            sys.exit(1)
+        if self.backup and self.restore:
+            msg = "Need to run either --backup or --restore. Not both at the same time"
+            print(msg)
+            raise RuntimeError(msg)
 
         if self.backup is False and not self.restore:
-            print("Need at least --backup or --restore")
-            sys.exit(1)
+            msg = "Need at least --backup or --restore"
+            print(msg)
+            raise RuntimeError(msg)
 
         return self
 
@@ -244,19 +233,14 @@ class TarIncremental:
     def __init__(self, args: Args, project: Project):
         self.args = args
         self.project = project
-        self.time_delta = GetFileTimeDelta()
         self.min_dir: Path
         self.max_dir: Path
         self.tmp_list: list[str] = []
         if self.project.destination is not None:
             self.project.destination.mkdir(exist_ok=True, parents=True)
 
-    def now(self):
-        now = datetime.now(ZoneInfo("Europe/London")).strftime("%d.%m.%Y.%H.%M.%S")
-        return now
-
     def rotate_dirs(self):
-        now = self.now()
+        now = now_time()
         if self.project.destination is None:
             raise AttributeError("Destination needs to be included in yaml")
         self.min_dir = self.project.destination / f"{self.args.project_name}-{now}"
@@ -284,20 +268,22 @@ class TarIncremental:
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
             prefix = self.args.project_name
-            directories = self._get_dirs(prefix=prefix)
+            directories: list[Path] = self._get_dirs(prefix=prefix)
             if not directories:
                 self.rotate_dirs()
                 directories = self._get_dirs(prefix=prefix)
-            directories_delta: list[tuple[Path, int]] = [
-                (x, self.time_delta.calculate_timedelta(x)) for x in directories
-            ]
-            self.min_dir, min_int = self.get_min_dir(directories_delta)
-            self.max_dir, _ = self.get_max_dir(directories_delta)
 
-            if min_int >= self.project.retention.consolidate_after:
+            self.min_dir = min(directories, key=lambda d: parse_timestamp(d.name))
+            self.max_dir = max(directories, key=lambda d: parse_timestamp(d.name))
+            now = datetime.now().astimezone()
+            created = datetime(*parse_timestamp(self.min_dir.name), tzinfo=now.tzinfo)
+            if now - created >= timedelta(
+                days=self.project.retention.consolidate_after
+            ):
                 self.rotate_dirs()
 
-            if len(directories) >= self.project.retention.keep_archives:
+            directories = self._get_dirs(prefix=prefix)
+            if len(directories) > self.project.retention.keep_archives:
                 shutil.rmtree(self.max_dir)
 
     def temp_file(self, data: list[str]):
@@ -312,7 +298,7 @@ class TarIncremental:
         return tmp_name
 
     def backup_tar_args(self) -> list:
-        now = self.now()
+        now = now_time()
         args = ["-vcz"] if self.project.compress else ["-vc"]
         assert self.project.incremental_filename is not None
         backup_filename = (
@@ -342,7 +328,9 @@ class TarIncremental:
             self.handle_dir_structure()
             args = self.backup_tar_args()
 
-            proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
+            proc = subprocess.run(
+                args=args, capture_output=True, text=True, check=False
+            )
             if proc.stdout:
                 print(proc.stdout)
             if proc.returncode >= 2:
@@ -358,10 +346,19 @@ class TarIncremental:
             msg = "No restore command has been invoked with paths from -> to"
             raise RestoreError(msg)
         restore_from = self.args.restore[0]
+        if not restore_from.exists():
+            raise RestoreError(f"Restore From does not exist: {restore_from}")
         restore_to = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
         files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}
-        files = sorted(files, key=lambda x: x.stat().st_mtime)
+        files = sorted(
+            files,
+            key=lambda p: (
+                (0, parse_timestamp(p.name))
+                if parse_timestamp(p.name)
+                else (1, p.stat().st_mtime)
+            ),
+        )
         for file in files:
             args = [
                 "tar",
@@ -373,7 +370,9 @@ class TarIncremental:
                 "-C",
                 str(restore_to),
             ]
-            proc = subprocess.run(args=args, capture_output=True, text=True, check=True)
+            proc = subprocess.run(
+                args=args, capture_output=True, text=True, check=False
+            )
             if proc.stdout:
                 print(proc.stdout)
             if proc.returncode >= 2:
@@ -397,5 +396,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except (yaml.YAMLError, ValidationError) as e:
+        print(f"error: {e}", file=sys.stderr)
     except (ConfigNotFoundError, ProjectNotFoundError, BackupError, RestoreError) as e:
         print(f"error: {e}", file=sys.stderr)
