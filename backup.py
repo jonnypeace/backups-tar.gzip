@@ -272,27 +272,27 @@ class TarIncremental:
     ) -> tuple[Path, int]:
         return max(directories_delta, key=lambda pair: pair[1])
 
+    def _get_dirs(self, prefix: str) -> list[Path]:
+        assert self.project.destination is not None
+        directories = [
+            d
+            for d in self.project.destination.iterdir()
+            if d.is_dir() and d.name.startswith(prefix)
+        ]
+        return directories
+
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
-            prefix = f"{self.args.project_name}"
-            directories = [
-                d
-                for d in self.project.destination.iterdir()
-                if d.is_dir() and d.name.startswith(prefix)
-            ]
+            prefix = self.args.project_name
+            directories = self._get_dirs(prefix=prefix)
             if not directories:
                 self.rotate_dirs()
-                self.handle_dir_structure()
-            count = sum(1 for x in directories for p in x.iterdir() if p.is_file())
-            if count >= 1:
-                directories_delta: list[tuple[Path, int]] = [
-                    (x, self.time_delta.calculate_timedelta(x)) for x in directories
-                ]
-                self.min_dir, min_int = self.get_min_dir(directories_delta)
-                self.max_dir, _ = self.get_max_dir(directories_delta)
-            else:
-                self.rotate_dirs()  # Start fresh
-                min_int = 0
+                directories = self._get_dirs(prefix=prefix)
+            directories_delta: list[tuple[Path, int]] = [
+                (x, self.time_delta.calculate_timedelta(x)) for x in directories
+            ]
+            self.min_dir, min_int = self.get_min_dir(directories_delta)
+            self.max_dir, _ = self.get_max_dir(directories_delta)
 
             if min_int >= self.project.retention.consolidate_after:
                 self.rotate_dirs()
