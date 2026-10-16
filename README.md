@@ -1,75 +1,105 @@
 # Incremental Backups using tar and gzip compression
 
-_update: 10-02-2024_
+## Backups using TAR
 
-# The Concept
-* The backup script holds onto 2 weeks worth of DAILY incremental backups
-* This backup solution uses tar with or without gz compression.
-* Once you've ensured that you are backing up all relevant files/directories, run on a crontab at a time each day which suits you. I recommend piping into logging command to capture any errors.
-* If you have made an error during testing, it is _best to remove all the tar files (including the file.inc) and start over_.
-* I've included a -h flag for help, which provides an example of backup and recovery. In the examples provided, i've named this script backup.sh.
+These scripts utilize the tar -g for incremental backups.
 
-Why this and not use tar directly?
-Well...
-
-* You could use tar directly, but the idea here is to manage a little more automation for tar.. Including:
-  - 2 weeks worth of DAILY backups always organized
-  - backups are incremental and automated therefore taking up less disk space.
-  - Easier to remember syntax for recovery. What use is a backup, if you cant recover.
-  - Compression and verbose enabled by default
-
-## The backup & recovery script -h (help with examples)
+Example of full command
 
 ```bash
-
-    backup.sh script for backup and recovery.
-
-    Select -b for backup followed by backup directory
-    Select -r for recovery followed by location of backup directory
-    Select -d for destination followed by directory to restore or backup to
-    Select -f for name of backup file
-    Select -n for no compression
-    Select -e for excludes file.
-    Select -h for this help
-
-    backup.sh script for backup and recovery.
-
-    Select -b for backup followed by backup directory
-    Select -r for recovery followed by location of backup directory
-    Select -d for destination followed by directory to restore or backup to
-    Select -f for name of backup file
-    Select -n for no compression
-    Select -e for excludes file
-    Select -i for includes file
-    Select -h for this help
-
-    DO NOT use -b WITH -i flag. If you want to add another directory or file, then add it to the includes file (-i) as there 
-    should be no need to use both.
-
-  * Example for backup:
-
-      ./backup.sh -d /mnt/NFS/backup/ -f filename -b $HOME/files/
-
-  * Example for restore:
-
-      ./backup.sh -d $HOME/files/ -r /mnt/NFS/backup/
-
-  * Example of backup utilizing the excludes file:
-
-      ./backup.sh -d /mnt/NFS/backup/ -f filename -e excludes.file -b $HOME/files/
-  
-  * Example for no compression. Just add the -n flag, no further args required: 
-
-      ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -b $HOME/files/
-  
-  * Example for includes file
-    (IMPORTANT: the -i flag cannot be used with -b ):
-
-      ./backup.sh -d /mnt/NFS/backup/ -n -f filename -e excludes.file -i includes.file
-
+tar -X excludes.txt -vcz -g incremental.file -f backup.tar.gz -T includes.txt
 ```
 
-## Potential improvements
+When you periodically run this command, subsequent backup file sizes are much smaller.
+If you switch backup directories it will start again fresh on the first backup,
+then resume smaller backups again.
 
-* Considering the use of --one-file-system as a default or option.
-* Considering making the backup timeline more flexible than 2 weeks of daily backups
+The recovery is a little more fun. You basically have to loop round the backup
+files in order of creation, and restore them somewhere.
+
+The scripts in this repository are used for handling the backup and restore mechanism,
+and they are used in conjunction with a yaml configuration, which helps keep things
+organised.
+
+## _update: 15-10-2026_
+
+There are two parts to this:
+
+* Bash script (legacy, no yaml)
+* Python Script with YAML Configuration (my future...)
+
+I am only going to document the python script. The help in bash should
+be intuitive enough to follow.
+
+The CLI for backup.py is more slimmed down, in favour of configuration
+more through YAML.
+
+```bash
+usage: backup.py [-h] --config YAML_FILE_PATH --project PROJECT_NAME [--backup]
+                 [--restore RESTORE_FROM RESTORE_TO]
+
+Back Up utility for incremental Tar Backups - Space Saving backups!
+
+options:
+  -h, --help            show this help message and exit
+  --config, -c YAML_FILE_PATH
+  --project, -p PROJECT_NAME
+  --backup, -b
+  --restore, -r RESTORE_FROM RESTORE_TO
+```
+
+```yaml
+defaults:
+  destination: /home/jonny/backups
+  excludes: []
+  compress: true
+  retention:
+    consolidate_after: 7 # Number of days
+    keep_archives: 3
+
+projects:
+  docs:
+    backup_filename: docs
+    destination: /home/jonny/backups
+    source: /home/jonny/Documents
+
+  bingo:
+    backup_filename: bingo_backup
+    includes:
+      - /home/jonny/bingo
+      - /home/jonny/bingo1
+    excludes:
+      - .gitignore
+```
+
+The idea here is you setup a yaml configuration, setup cron and do scheduled backups.
+
+To get started, it is fairly straight forward using UV.
+
+```bash
+uv sync
+```
+
+After this you are ready to go.
+
+Due to the use of the YAML configuration, I was not fully happy with relative paths,
+but i may introduce them. At present it is absolute paths only.
+
+The options available in the examples are the only options available for
+defaults and projects. Obviously you can rename your projects...
+
+```yaml
+projects:
+  ollama:
+    backup_filename: ...
+```
+
+An example of a cronjob...
+
+```bash
+crontab -e
+```
+
+```bash
+30 20 * * * mount /mnt/backups/ && uv run --directory ~/git/backups-tar.gzip/ backup.py -c config.yaml -p nextcloud -b
+```
