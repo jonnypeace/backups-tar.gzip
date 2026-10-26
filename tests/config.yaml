@@ -1,0 +1,11 @@
+defaults:
+  destination: /tmp/backup_test_dest
+  excludes: []
+  retention:
+    consolidate_after: 7
+    keep_archives: 3
+  compress: true
+projects:
+  test_project:
+    source: /tmp/backup_test_source
+    backup_filename: test_backup
