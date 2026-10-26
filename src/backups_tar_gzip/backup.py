@@ -7,10 +7,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from argparse import ArgumentParser, Namespace
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Annotated
 from functools import cached_property
+from pathlib import Path
+from re import Match, Pattern
+from subprocess import CompletedProcess
+from typing import Annotated, Any, ClassVar
 
 import yaml
 from pydantic import (
@@ -50,7 +53,7 @@ class ArgsError(Exception):
 
 
 DATE_TIME_FORMAT = "%Y.%m.%d.%H.%M.%S"
-REGEX = re.compile(r"(\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})")
+REGEX: Pattern[str] = re.compile(r"(\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})")
 
 
 def now_time() -> str:
@@ -66,7 +69,7 @@ def parse_timestamp(file: str) -> tuple[int, int, int, int, int, int]:
 
     Returns a tuple with year, month, day, hours, mins, secs.
     """
-    found = REGEX.search(file)
+    found: Match[str] | None = REGEX.search(file)
     if not found:
         raise FileDirectoryRenameError(
             f"File or folder names do not have correct datetime format in path name:\n{file}"
@@ -89,15 +92,14 @@ def _abs_path(v: Path) -> Path:
 
 AbsPath = Annotated[Path, AfterValidator(_abs_path)]
 
-
 class Retention(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
     consolidate_after: int = 7
     keep_archives: int = 3
 
 
 class Defaults(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
     destination: AbsPath = Field(
         default=Path.home() / "backups",
         validate_default=True,
@@ -108,7 +110,7 @@ class Defaults(BaseModel):
 
 
 class Project(BaseModel):
-    model_config = ConfigDict(extra="forbid", validate_default=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_default=True)
     source: AbsPath | None = None
     destination: AbsPath | None = None
     retention: Retention | None = None
@@ -127,8 +129,8 @@ class Project(BaseModel):
 
     @model_validator(mode="after")
     def _file_extension(self) -> Project:
-        name = self.backup_filename
-        regex = re.compile(r"[\\/]+")
+        name: str = self.backup_filename
+        regex: Pattern[str] = re.compile(r"[\\/]+")
         if name.endswith((".tar", ".tar.gz", ".tgz")) or regex.findall(name):
             raise ValueError(
                 "backup_filename should have no extension; it is added automatically"
@@ -137,7 +139,7 @@ class Project(BaseModel):
 
 
 class Config(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
     defaults: Defaults
     projects: dict[ProjectName, Project]
 
@@ -151,8 +153,7 @@ def _check_not_recursive(source: Path, destination: Path) -> None:
     # True when destination == source OR destination is nested inside source
     if destination.is_relative_to(source):
         raise ValueError(
-            f"destination {destination} is inside source {source}; "
-            "the backup would archive itself"
+            f"destination {destination} is inside source {source}; the backup would archive itself"
         )
 
 
@@ -164,8 +165,8 @@ def update_project(config: Config, name: str) -> Project:
         Project
     """
 
-    project = config.projects[name].model_copy()
-    d = config.defaults
+    project: Project = config.projects[name].model_copy()
+    d: Defaults = config.defaults
     if project.destination is None:
         project.destination = d.destination
     if project.retention is None:
@@ -203,40 +204,40 @@ class Args(BaseModel):
 
 class ParseArgs:
     def __init__(self):
-        self.parser = argparse.ArgumentParser(
+        self.parser: ArgumentParser = argparse.ArgumentParser(
             prog="backup.py",
             description="Back Up utility for incremental Tar Backups - Space Saving backups!",
             formatter_class=argparse.RawTextHelpFormatter,
         )
-        self.parser.add_argument(
+        _ = self.parser.add_argument(
             "--config", "-c", type=Path, metavar="YAML_FILE_PATH", required=True
         )
 
-        self.parser.add_argument(
+        _ = self.parser.add_argument(
             "--project", "-p", type=str, metavar="PROJECT_NAME", required=True
         )
 
-        self.parser.add_argument("--backup", "-b", action="store_true", default=False)
+        _ = self.parser.add_argument("--backup", "-b", action="store_true", default=False)
 
-        self.parser.add_argument(
+        _ = self.parser.add_argument(
             "--restore",
             "-r",
             nargs=2,
             type=Path,
             metavar=("RESTORE_FROM", "RESTORE_TO"),
         )
-        self.args = self.parser.parse_args()
+        self.args: Namespace = self.parser.parse_args()
         self.config_validate()
 
-    def config_validate(self):
+    def config_validate(self) -> None:
         if not self.args.config.exists():
-            msg = f"Error: Config does not exist: {self.args.config}"
+            msg: str = f"Error: Config does not exist: {self.args.config}"
             raise ConfigNotFoundError(msg)
         if not self.args.config.is_file():
             msg = f"Config Cannot be a directory: {self.args.config}"
             raise ConfigNotFoundError(msg)
 
-    def get_args(self):
+    def get_args(self) -> Args:
         return Args(
             config=self.args.config,
             backup=self.args.backup,
@@ -246,11 +247,11 @@ class ParseArgs:
 
 
 def get_project(args: Args, config: Config) -> Project:
-    project_found = config.projects.get(args.project_name)
+    project_found: Project | None = config.projects.get(args.project_name)
     if project_found is not None:
         return update_project(config=config, name=args.project_name)
 
-    project_names = list(config.projects.keys())
+    project_names: list[ProjectName] = list(config.projects.keys())
 
     msg = "No project_name matched --project or project_name in yaml"
     print("--project:", args.project_name)
@@ -273,8 +274,8 @@ class TarIncremental:
             oldest_dir: Path (This is for storing the oldest directory)
             tmp_list: list[str] (Stores temporary files for deletion at the end)
         """
-        self.args = args
-        self.project = project
+        self.args: Args = args
+        self.project: Project = project
         self.youngest_dir: Path
         self.oldest_dir: Path
         self.tmp_list: list[str] = []
@@ -291,7 +292,7 @@ class TarIncremental:
 
     def _get_dirs(self, prefix: str) -> list[Path]:
         assert self.project.destination is not None
-        directories = [
+        directories: list[AbsPath] = [
             d
             for d in self.project.destination.iterdir()
             if d.is_dir() and d.name.startswith(prefix)
@@ -300,12 +301,12 @@ class TarIncremental:
 
     @cached_property
     def now(self) -> str:
-        now = now_time()
+        now: str = now_time()
         return now
 
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
-            prefix = self.args.project_name + "-"
+            prefix: str = self.args.project_name + "-"
             directories: list[Path] = self._get_dirs(prefix=prefix)
             if not directories:
                 self.rotate_dirs()
@@ -313,8 +314,8 @@ class TarIncremental:
 
             self.oldest_dir = min(directories, key=lambda d: parse_timestamp(d.name))
             self.youngest_dir = max(directories, key=lambda d: parse_timestamp(d.name))
-            now = datetime.now().astimezone()
-            created = datetime(
+            now: datetime = datetime.now().astimezone()
+            created: datetime = datetime(
                 *parse_timestamp(self.oldest_dir.name), tzinfo=now.tzinfo
             )
             if now - created >= timedelta(
@@ -323,7 +324,7 @@ class TarIncremental:
                 self.rotate_dirs()
 
             directories = self._get_dirs(prefix=prefix)
-            number_of_dirs = len(directories)
+            number_of_dirs: int = len(directories)
             while number_of_dirs > self.project.retention.keep_archives:
                 shutil.rmtree(self.oldest_dir)
                 number_of_dirs -= 1
@@ -344,8 +345,8 @@ class TarIncremental:
         return tmp_name
 
     def backup_tar_args(self) -> list:
-        args = ["-vcz"] if self.project.compress else ["-vc"]
-        backup_filename = (
+        args: list[str] = ["-vcz"] if self.project.compress else ["-vc"]
+        backup_filename: str = (
             f"{self.project.backup_filename}-{self.now}.tar.gz"
             if self.project.compress
             else f"{self.project.backup_filename}-{self.now}.tar"
@@ -370,9 +371,9 @@ class TarIncremental:
     def backup(self):
         try:
             self.handle_dir_structure()
-            args = self.backup_tar_args()
+            args: list[Any] = self.backup_tar_args()
 
-            proc = subprocess.run(
+            proc: CompletedProcess[str] = subprocess.run(
                 args=args, capture_output=True, text=True, check=False
             )
             if proc.stdout:
@@ -394,10 +395,10 @@ class TarIncremental:
             raise RestoreError(
                 f"Restore From does not exist or is a file: {restore_from}"
             )
-        restore_to = self.args.restore[1]
+        restore_to: Path = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
-        files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}
-        files = sorted(files, key=lambda p: parse_timestamp(p.name))
+        files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}  # pyright: ignore[reportAssignmentType]
+        files: list[Path] = sorted(files, key=lambda p: parse_timestamp(p.name))
         for file in files:
             args = [
                 "tar",
@@ -409,7 +410,7 @@ class TarIncremental:
                 "-C",
                 str(restore_to),
             ]
-            proc = subprocess.run(
+            proc: CompletedProcess[str] = subprocess.run(
                 args=args, capture_output=True, text=True, check=False
             )
             if proc.stdout:
@@ -424,9 +425,9 @@ def main():
     try:
         args: Args = ParseArgs().get_args()
         with open(args.config, encoding="utf-8") as file:
-            config = Config.model_validate(yaml.safe_load(file))
-        project = get_project(args, config)
-        tar = TarIncremental(args, project)
+            config: Config = Config.model_validate(yaml.safe_load(file))
+        project: Project = get_project(args, config)
+        tar: TarIncremental = TarIncremental(args, project)
         if args.backup:
             tar.backup()
         if args.restore:
