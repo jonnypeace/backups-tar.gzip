@@ -13,7 +13,7 @@ from functools import cached_property
 from pathlib import Path
 from re import Match, Pattern
 from subprocess import CompletedProcess
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 import yaml
 from pydantic import (
@@ -53,7 +53,8 @@ class ArgsError(Exception):
 
 
 DATE_TIME_FORMAT = "%Y.%m.%d.%H.%M.%S"
-REGEX: Pattern[str] = re.compile(r"(\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2})")
+TIMESTAMP_PATTERN: str = r"\d{4}\.\d{2}\.\d{2}\.\d{2}\.\d{2}\.\d{2}"
+REGEX: Pattern[str] = re.compile(f"({TIMESTAMP_PATTERN})")
 
 
 def now_time() -> str:
@@ -76,6 +77,18 @@ def parse_timestamp(file: str) -> tuple[int, int, int, int, int, int]:
         )
     y, m, d, h, mi, s = (int(x) for x in found.group(1).split("."))
     return (y, m, d, h, mi, s)
+
+
+def directory_pattern(project_name: str) -> Pattern[str]:
+    """
+    Matches only the backup directories that backup.py creates for one project,
+    for example "docs-2026.10.26.20.30.59".
+
+    The whole directory name has to match, so unrelated folders are never picked
+    up. "docs-notes" does not match, and the backup directories of a project
+    called "docs-2026" are not mistaken for those of a project called "docs".
+    """
+    return re.compile(rf"^{re.escape(project_name)}-{TIMESTAMP_PATTERN}$")
 
 
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
@@ -273,12 +286,14 @@ class TarIncremental:
             youngest_dir: Path (This is for storing the youngest directory)
             oldest_dir: Path (This is for storing the oldest directory)
             tmp_list: list[str] (Stores temporary files for deletion at the end)
+            directory_re: Pattern[str] (Matches this project's directory names only)
         """
         self.args: Args = args
         self.project: Project = project
         self.youngest_dir: Path
         self.oldest_dir: Path
         self.tmp_list: list[str] = []
+        self.directory_re: Pattern[str] = directory_pattern(args.project_name)
         if self.project.destination is not None:
             self.project.destination.mkdir(exist_ok=True, parents=True)
 
@@ -290,14 +305,37 @@ class TarIncremental:
         )
         self.youngest_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_dirs(self, prefix: str) -> list[Path]:
+    def _get_dirs(self) -> list[Path]:
+        """
+        The backup directories belonging to this project, and nothing else.
+        """
         assert self.project.destination is not None
-        directories: list[AbsPath] = [
+        directories: list[Path] = [
             d
             for d in self.project.destination.iterdir()
-            if d.is_dir() and d.name.startswith(prefix)
+            if d.is_dir() and self.directory_re.fullmatch(d.name)
         ]
         return directories
+
+    def _remove_directory(self, directory: Path) -> None:
+        """
+        Delete a backup directory, but only after proving this tool created it.
+
+        The directory has to sit directly in this project's destination and have
+        a name matching directory_pattern. Anything else is a bug in the caller,
+        so it is refused rather than handed to shutil.rmtree.
+        """
+        assert self.project.destination is not None
+        destination: Path = self.project.destination.resolve()
+        candidate: Path = directory.resolve()
+        if candidate.parent != destination or not self.directory_re.fullmatch(
+            candidate.name
+        ):
+            raise BackupError(
+                f"Refusing to delete '{directory}': not a backup directory of "
+                + f"project '{self.args.project_name}' inside {destination}"
+            )
+        shutil.rmtree(candidate)
 
     @cached_property
     def now(self) -> str:
@@ -306,11 +344,10 @@ class TarIncremental:
 
     def handle_dir_structure(self):
         if self.project.destination is not None and self.project.retention is not None:
-            prefix: str = self.args.project_name + "-"
-            directories: list[Path] = self._get_dirs(prefix=prefix)
+            directories: list[Path] = self._get_dirs()
             if not directories:
                 self.rotate_dirs()
-                directories = self._get_dirs(prefix=prefix)
+                directories = self._get_dirs()
 
             self.oldest_dir = min(directories, key=lambda d: parse_timestamp(d.name))
             self.youngest_dir = max(directories, key=lambda d: parse_timestamp(d.name))
@@ -323,28 +360,26 @@ class TarIncremental:
             ):
                 self.rotate_dirs()
 
-            directories = self._get_dirs(prefix=prefix)
-            number_of_dirs: int = len(directories)
-            while number_of_dirs > self.project.retention.keep_archives:
-                shutil.rmtree(self.oldest_dir)
-                number_of_dirs -= 1
-                directories = self._get_dirs(prefix=prefix)
+            directories = self._get_dirs()
+            while len(directories) > self.project.retention.keep_archives:
                 self.oldest_dir = min(
                     directories, key=lambda d: parse_timestamp(d.name)
                 )
+                self._remove_directory(self.oldest_dir)
+                directories = self._get_dirs()
 
     def temp_file(self, data: list[str]):
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", delete=False
         ) as tmp:
-            tmp.write("\n".join(data))
+            tmp.write("\n".join(data))  # pyright: ignore[reportUnusedCallResult]
             tmp.flush()
-            tmp.seek(0)
+            tmp.seek(0)  # pyright: ignore[reportUnusedCallResult]
             tmp_name = tmp.name
         self.tmp_list.append(tmp.name)
         return tmp_name
 
-    def backup_tar_args(self) -> list:
+    def backup_tar_args(self) -> list[str]:
         args: list[str] = ["-vcz"] if self.project.compress else ["-vc"]
         backup_filename: str = (
             f"{self.project.backup_filename}-{self.now}.tar.gz"
@@ -371,7 +406,7 @@ class TarIncremental:
     def backup(self):
         try:
             self.handle_dir_structure()
-            args: list[Any] = self.backup_tar_args()
+            args: list[str] = self.backup_tar_args()
 
             proc: CompletedProcess[str] = subprocess.run(
                 args=args, capture_output=True, text=True, check=False
@@ -397,8 +432,14 @@ class TarIncremental:
             )
         restore_to: Path = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
-        files = {*restore_from.rglob("*.tar"), *restore_from.rglob("*tar.gz")}  # pyright: ignore[reportAssignmentType]
-        files: list[Path] = sorted(files, key=lambda p: parse_timestamp(p.name))
+        files: list[Path] = sorted(
+            {
+                *restore_from.rglob("*.tar"),
+                *restore_from.rglob("*.tar.gz"),
+                *restore_from.rglob("*.tgz"),
+            },
+            key=lambda p: parse_timestamp(p.name),
+        )
         for file in files:
             args = [
                 "tar",
