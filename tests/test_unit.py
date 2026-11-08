@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from backups_tar_gzip.backup import (
     Args,
@@ -33,7 +34,7 @@ def test_parse_timestamp_ignores_surrounding_text() -> None:
 
 def test_parse_timestamp_missing_raises() -> None:
     with pytest.raises(FileDirectoryRenameError):
-        parse_timestamp("test_project-no-timestamp-here")
+        _ = parse_timestamp("test_project-no-timestamp-here")
 
 
 def test_parse_timestamp_zero_padded() -> None:
@@ -43,7 +44,7 @@ def test_parse_timestamp_zero_padded() -> None:
 # update_project
 
 def make_config(tmp_path: Path, **project_kwargs: object) -> Config:
-    project_kwargs.setdefault("source", tmp_path / "src")
+    _ = project_kwargs.setdefault("source", tmp_path / "src")
     config: Config = Config.model_validate(
         {
             "defaults": {
@@ -104,7 +105,7 @@ def test_update_project_rejects_destination_inside_source(
         destination=str(tmp_path / "src" / "nested"),
     )
     with pytest.raises(ValueError, match="inside source"):
-        update_project(config, "proj")
+        _ = update_project(config, "proj")
 
 
 def test_update_project_rejects_destination_equal_to_source(
@@ -116,7 +117,7 @@ def test_update_project_rejects_destination_equal_to_source(
         destination=str(tmp_path / "src"),
     )
     with pytest.raises(ValueError, match="inside source"):
-        update_project(config, "proj")
+        _ = update_project(config, "proj")
 
 
 def test_update_project_allows_destination_outside_source(
@@ -135,6 +136,69 @@ def test_update_project_includes_list(tmp_path: Path) -> None:
     )
     project: Project = update_project(config, "proj")
     assert project.includes == [str(tmp_path / "a"), str(tmp_path / "b")]
+
+
+# Retention bounds
+
+def test_retention_defaults_are_within_the_bounds() -> None:
+    retention: Retention = Retention()
+    assert retention.consolidate_after == 7
+    assert retention.keep_archives == 3
+
+
+def test_retention_accepts_one_as_the_smallest_allowed_value() -> None:
+    retention: Retention = Retention(consolidate_after=1, keep_archives=1)
+    assert retention.consolidate_after == 1
+    assert retention.keep_archives == 1
+
+
+@pytest.mark.parametrize("consolidate_after", [0, -1, -7])
+def test_retention_rejects_consolidate_after_below_one(consolidate_after: int) -> None:
+    with pytest.raises(ValidationError, match="consolidate_after"):
+        _ = Retention(consolidate_after=consolidate_after)
+
+
+@pytest.mark.parametrize("keep_archives", [0, -1, -7])
+def test_retention_rejects_keep_archives_below_one(keep_archives: int) -> None:
+    with pytest.raises(ValidationError, match="keep_archives"):
+        _ = Retention(keep_archives=keep_archives)
+
+
+def test_config_rejects_out_of_bounds_retention_in_defaults(tmp_path: Path) -> None:
+    # The same bounds have to hold for a YAML config, not just direct model use:
+    # `keep_archives: 0` used to reach handle_dir_structure() and prune away the
+    # backup it had just created.
+    with pytest.raises(ValidationError, match="keep_archives"):
+        _ = Config.model_validate(
+            {
+                "defaults": {
+                    "destination": str(tmp_path / "backups"),
+                    "retention": {"consolidate_after": 7, "keep_archives": 0},
+                },
+                "projects": {
+                    "proj": {
+                        "source": str(tmp_path / "src"),
+                        "backup_filename": "proj_backup",
+                    },
+                },
+            }
+        )
+
+
+def test_config_rejects_out_of_bounds_retention_in_project_override(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="consolidate_after"):
+        _ = Config.model_validate(
+            {
+                "defaults": {"destination": str(tmp_path / "backups")},
+                "projects": {
+                    "proj": {
+                        "source": str(tmp_path / "src"),
+                        "backup_filename": "proj_backup",
+                        "retention": {"consolidate_after": 0, "keep_archives": 5},
+                    },
+                },
+            }
+        )
 
 
 # directory_pattern
@@ -233,7 +297,7 @@ def test_handle_dir_structure_ignores_unrelated_directories(tmp_path: Path) -> N
 
     stray: Path = destination / "docs-notes"
     stray.mkdir()
-    (stray / "precious.txt").write_text("must survive")
+    _ = (stray / "precious.txt").write_text("must survive")
 
     tar.handle_dir_structure()
 
@@ -290,7 +354,7 @@ def test_remove_directory_refuses_a_directory_it_did_not_create(tmp_path: Path) 
 
     foreign: Path = destination / "docs-notes"
     foreign.mkdir()
-    (foreign / "precious.txt").write_text("must survive")
+    _ = (foreign / "precious.txt").write_text("must survive")
 
     with pytest.raises(BackupError, match="Refusing to delete"):
         tar._remove_directory(foreign)
@@ -319,8 +383,92 @@ def test_remove_directory_deletes_a_real_backup_directory(tmp_path: Path) -> Non
 
     backup_dir: Path = destination / f"docs-{stamp(21)}"
     backup_dir.mkdir(parents=True)
-    (backup_dir / "archive.tar").write_text("gone")
+    _ = (backup_dir / "archive.tar").write_text("gone")
 
     tar._remove_directory(backup_dir)
 
     assert not backup_dir.exists()
+
+
+# handle_dir_structure at the retention bounds
+
+
+def test_handle_dir_structure_keeps_the_newest_dir_when_the_bounds_are_one(
+    tmp_path: Path,
+) -> None:
+    # keep_archives: 1 is the smallest value the Retention model allows, and it
+    # used to be reachable as a much smaller number. The prune loop must stop at
+    # the directory this run has just created instead of deleting it and then
+    # asking for the oldest of an empty list.
+    tar: TarIncremental = make_tar(
+        tmp_path, "docs", consolidate_after=1, keep_archives=1
+    )
+    destination: Path = destination_of(tar)
+    oldest: Path = destination / f"docs-{stamp(21)}"
+    oldest.mkdir(parents=True)
+
+    tar.handle_dir_structure()
+
+    surviving: list[str] = backup_dirs_in(destination, "docs")
+    assert oldest not in surviving
+    assert len(surviving) == 1
+    assert surviving[0] == tar.youngest_dir.name
+
+
+def test_handle_dir_structure_is_a_no_op_for_one_kept_dir_that_is_not_yet_old(
+    tmp_path: Path,
+) -> None:
+    tar: TarIncremental = make_tar(
+        tmp_path, "docs", consolidate_after=7, keep_archives=1
+    )
+    destination: Path = destination_of(tar)
+    current: Path = destination / f"docs-{stamp(1)}"
+    current.mkdir(parents=True)
+
+    tar.handle_dir_structure()
+
+    assert current.is_dir()
+    assert backup_dirs_in(destination, "docs") == [current.name]
+
+
+def test_handle_dir_structure_with_an_empty_destination_creates_one_dir(
+    tmp_path: Path,
+) -> None:
+    tar: TarIncremental = make_tar(
+        tmp_path, "docs", consolidate_after=1, keep_archives=1
+    )
+
+    tar.handle_dir_structure()
+
+    assert backup_dirs_in(destination_of(tar), "docs") == [tar.youngest_dir.name]
+
+
+def test_config_with_keep_archives_one_is_accepted_and_rotates(tmp_path: Path) -> None:
+    # A whole config through update_project(), which is what main() does with a
+    # YAML file, to show a valid lower bound is not rejected on the way through.
+    config: Config = Config.model_validate(
+        {
+            "defaults": {
+                "destination": str(tmp_path / "backups"),
+                "retention": {"consolidate_after": 1, "keep_archives": 1},
+            },
+            "projects": {
+                "proj": {
+                    "source": str(tmp_path / "src"),
+                    "backup_filename": "proj_backup",
+                },
+            },
+        }
+    )
+    project: Project = update_project(config, "proj")
+    assert project.retention == Retention(consolidate_after=1, keep_archives=1)
+
+    args: Args = Args(
+        config=tmp_path / "config.yaml", backup=True, project_name="proj"
+    )
+    tar: TarIncremental = TarIncremental(args, project)
+    (destination_of(tar) / f"proj-{stamp(30)}").mkdir(parents=True)
+
+    tar.handle_dir_structure()
+
+    assert len(backup_dirs_in(destination_of(tar), "proj")) == 1

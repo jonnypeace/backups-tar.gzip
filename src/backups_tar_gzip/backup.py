@@ -106,9 +106,23 @@ def _abs_path(v: Path) -> Path:
 AbsPath = Annotated[Path, AfterValidator(_abs_path)]
 
 class Retention(BaseModel):
+    """
+    How long the rolling set of backup directories lives.
+
+    Both values count whole backup directories (not .tar files), and both must
+    be at least 1:
+
+    - `keep_archives: 0` makes handle_dir_structure() prune the destination
+      until it is empty, including the directory this run has only just
+      created, so the archive is then written into a directory that no longer
+      exists.
+    - `consolidate_after: 0` opens a brand new directory on every run, which
+      throws away the incremental chain kept in the current one.
+    """
+
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
-    consolidate_after: int = 7
-    keep_archives: int = 3
+    consolidate_after: int = Field(default=7, ge=1)
+    keep_archives: int = Field(default=3, ge=1)
 
 
 class Defaults(BaseModel):
