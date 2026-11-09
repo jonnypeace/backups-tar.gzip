@@ -91,6 +91,24 @@ def directory_pattern(project_name: str) -> Pattern[str]:
     return re.compile(rf"^{re.escape(project_name)}-{TIMESTAMP_PATTERN}$")
 
 
+ARCHIVE_SUFFIXES: str = r"(?:\.tar\.gz|\.tgz|\.tar)"
+
+
+def file_pattern(backup_filename: str) -> Pattern[str]:
+    """
+    Matches only the archives that backup.py creates for one project, for
+    example "bingo_backup-2026.11.01.20.30.59.tar.gz".
+
+    Anchored at both ends the way directory_pattern() is, so a foreign archive
+    cannot slip into a restore: "notes-2026.11.01.20.30.59.tar.gz" (another
+    project's) and "bingo_backup-2026.11.01.20.30.59X.tar.gz" (junk after the
+    timestamp) are both refused.
+    """
+    return re.compile(
+        rf"^{re.escape(backup_filename)}-{TIMESTAMP_PATTERN}{ARCHIVE_SUFFIXES}$"
+    )
+
+
 ProjectName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z][\w-]*$")]
 
 
@@ -435,6 +453,53 @@ class TarIncremental:
             for tmp_file in self.tmp_list:
                 os.remove(tmp_file)
 
+    def _get_restore_archives(self, restore_from: Path) -> list[Path]:
+        """
+        The archives of this project inside RESTORE FROM, oldest first.
+
+        RESTORE FROM is one backup directory and is not searched recursively,
+        but files that do not belong to this project can still sit in it -
+        another project's archive, or a leftover from backup.sh. They are
+        reported and skipped instead of aborting the restore, and they are
+        reported before sorting, so a name whose timestamp cannot be parsed
+        surfaces as "not this project's archive" rather than as a confusing
+        datetime-format error from parse_timestamp().
+        """
+        candidates: set[Path] = {
+            *restore_from.glob("*.tar"),
+            *restore_from.glob("*.tar.gz"),
+            *restore_from.glob("*.tgz"),
+        }
+        file_re: Pattern[str] = file_pattern(
+            backup_filename=self.project.backup_filename
+        )
+        archives: list[Path] = []
+        skipped: list[Path] = []
+        for candidate in candidates:
+            if file_re.fullmatch(candidate.name):
+                archives.append(candidate)
+            else:
+                skipped.append(candidate)
+
+        if skipped:
+            print(
+                "warning: skipping files in RESTORE FROM that are not archives of "
+                + f"project '{self.args.project_name}':",
+                file=sys.stderr,
+            )
+            for path in sorted(skipped, key=lambda p: str(p)):
+                print(f"  {path}", file=sys.stderr)
+
+        if not archives:
+            raise RestoreError(
+                f"No archives for project '{self.args.project_name}' directly inside "
+                + f"{restore_from}. RESTORE FROM has to be one backup directory of "
+                + "that project, not the destination holding them"
+            )
+
+        # Every name here matched file_pattern, so parse_timestamp cannot fail.
+        return sorted(archives, key=lambda p: parse_timestamp(p.name))
+
     def restore(self):
         if self.args.restore is None:
             msg = "No restore command has been invoked with paths from -> to"
@@ -444,16 +509,10 @@ class TarIncremental:
             raise RestoreError(
                 f"Restore From does not exist or is a file: {restore_from}"
             )
+        files: list[Path] = self._get_restore_archives(restore_from)
         restore_to: Path = self.args.restore[1]
         restore_to.mkdir(parents=True, exist_ok=True)
-        files: list[Path] = sorted(
-            {
-                *restore_from.rglob("*.tar"),
-                *restore_from.rglob("*.tar.gz"),
-                *restore_from.rglob("*.tgz"),
-            },
-            key=lambda p: parse_timestamp(p.name),
-        )
+
         for file in files:
             args = [
                 "tar",
